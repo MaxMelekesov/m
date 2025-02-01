@@ -11,8 +11,6 @@
 #ifndef IPIN_H
 #define IPIN_H
 
-#include <optional>
-
 namespace m::ifc::mcu {
 class IPin {
  public:

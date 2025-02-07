@@ -48,7 +48,7 @@ class final_action {
 
 // finally() - convenience function to generate a final_action
 template <class F>
-GSL_NODISCARD auto finally(F&& f) noexcept {
+[[nodiscard]] auto finally(F&& f) noexcept {
   return final_action<std::decay_t<F>>{std::forward<F>(f)};
 }
 

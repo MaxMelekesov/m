@@ -12,16 +12,14 @@
 #define TIME_F4_TIM5_H
 
 #include <ITime.h>
+#include <Ms.h>
+#include <Us.h>
 
 #include "stm32f4xx_hal.h"
 
-class Time final : public m::ifc::ITime {
- private:
-  using Ms = m::ifc::Ms;
-  using Us = m::ifc::Us;
-
+class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
  public:
-  Time() {
+  TimeUs() {
     TIM_ClockConfigTypeDef sClockSourceConfig = {0};
     TIM_MasterConfigTypeDef sMasterConfig = {0};
 
@@ -47,42 +45,51 @@ class Time final : public m::ifc::ITime {
     HAL_TIM_Base_Start(&htim5_);
   }
 
-  Time(const Time&) = delete;
-  Time& operator=(const Time&) = delete;
-  Time(Time&&) = delete;
-  Time& operator=(Time&&) = delete;
+  TimeUs(const TimeUs&) = delete;
+  TimeUs& operator=(const TimeUs&) = delete;
+  TimeUs(TimeUs&&) = delete;
+  TimeUs& operator=(TimeUs&&) = delete;
 
-  void delay(Us us) override {
+  void delay(Us<uint32_t> value) override {
     uint32_t start = htim5_.Instance->CNT;
-    uint32_t delay = us.value();
+    uint32_t delay = value.value();
     while (1) {
       uint32_t now = htim5_.Instance->CNT;
       uint32_t diff = now - start;
       if (diff >= delay) break;
     }
   }
-  void delay(Ms ms) override {
-    uint32_t start = htim5_.Instance->CNT;
-    uint32_t delay_us = ms.value() * 1э000;
-    while (1) {
-      uint32_t now = htim5_.Instance->CNT;
-      uint32_t diff = now - start;
-      if (diff >= delay_us) break;
-    }
-  }
 
-  Us getTickUs() override { return Us{htim5_.Instance->CNT}; }
-  Ms getTickMs() override { return Ms{HAL_GetTick()}; }
+  Us<uint32_t> getTick() override { return Us<uint32_t>{htim5_.Instance->CNT}; }
 
-  Us getDiff(Us startUs) override {
+  Us<uint32_t> getDiff(Us<uint32_t> value) override {
     uint32_t diff = htim5_.Instance->CNT;
-    diff -= (uint32_t)startUs.value();
-    return Us{diff};
+    diff -= value.value();
+    return Us<uint32_t>{diff};
   }
-  Ms getDiff(Ms startMs) override { return getTickMs() - startMs; }
 
  private:
   TIM_HandleTypeDef htim5_{0};
+};
+
+class TimeMs final : public m::ifc::ITime<Ms<uint32_t>> {
+ public:
+  TimeMs() {}
+
+  TimeMs(const TimeMs&) = delete;
+  TimeMs& operator=(const TimeMs&) = delete;
+  TimeMs(TimeMs&&) = delete;
+  TimeMs& operator=(TimeMs&&) = delete;
+
+  void delay(Ms<uint32_t> value) override { HAL_Delay(value.value()); }
+
+  Ms<uint32_t> getTick() override { return Ms<uint32_t>{HAL_GetTick()}; }
+
+  Ms<uint32_t> getDiff(Ms<uint32_t> value) override {
+    uint32_t diff = HAL_GetTick();
+    diff -= value.value();
+    return Ms<uint32_t>{diff};
+  }
 };
 
 #endif  // TIME_F4_TIM5_H

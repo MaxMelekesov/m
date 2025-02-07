@@ -1,0 +1,29 @@
+/**
+ * This file is part of m library.
+ *
+ * m library is free software: you can redistribute it and/or modify
+ * it under the terms of the MIT License. See the LICENSE file in the
+ * project root for more information.
+ *
+ * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
+ */
+
+#ifndef IIT_H
+#define IIT_H
+
+#include <functional>
+
+namespace m::ifc::mcu {
+class IIt {
+ public:
+  virtual ~IIt() {}
+
+  virtual void setItCallback(const std::function<void()>& cb) = 0;
+
+  virtual bool start() { return false; }
+  virtual bool running() { return false; }
+  virtual bool stop() { return false; }
+};
+}  // namespace m::ifc::mcu
+
+#endif  // IIT_H

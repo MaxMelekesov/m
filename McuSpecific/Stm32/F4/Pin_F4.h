@@ -118,22 +118,18 @@ class Pin final : public m::ifc::mcu::IPin {
     rcc_.disableClock(port_);
   }
 
-  bool write(bool state) override {
+  void write(bool state) override {
     if (state != (bool)inversion_)
       HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_SET);
     else
       HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_RESET);
-    return true;
   }
 
-  std::optional<bool> read() const override {
+  bool read() const override {
     return HAL_GPIO_ReadPin(port_, (uint32_t)pin_num_) != (bool)inversion_;
   }
 
-  bool toggle() override {
-    HAL_GPIO_TogglePin(port_, (uint32_t)pin_num_);
-    return true;
-  }
+  void toggle() override { HAL_GPIO_TogglePin(port_, (uint32_t)pin_num_); }
 
  private:
   class GpioRcc {

@@ -16,29 +16,17 @@
 #include <functional>
 
 namespace m {
-class Timeout {
- private:
-  using Ms = m::ifc::Ms;
-  using Us = m::ifc::Us;
-  ifc::ITime& time_;
 
+template <typename TimeUnit>
+class Timeout {
  public:
-  Timeout(ifc::ITime& time) : time_(time) {}
+  using type = TimeUnit;
+
+  Timeout(ifc::ITime<type>& time) : time_(time) {}
 
   // Run while code is false and time diff < timeout
-  bool execWithTimeout(std::function<bool()> code, Ms timeout) {
-    auto start = time_.getTickMs();
-
-    while (!code()) {
-      //(uint32_t u1 - uint32_t u2) gives correct result if u1 < u2
-      if (time_.getDiff(start) > timeout) return false;
-    }
-
-    return true;
-  }
-
-  bool execWithTimeout(std::function<bool()> code, Us timeout) {
-    auto start = time_.getTickUs();
+  bool execWithTimeout(const std::function<bool()>& code, type timeout) {
+    auto start = time_.getTick();
 
     while (!code()) {
       if (time_.getDiff(start) > timeout) return false;
@@ -46,6 +34,9 @@ class Timeout {
 
     return true;
   }
+
+ private:
+  ifc::ITime<type>& time_;
 };
 }  // namespace m
 

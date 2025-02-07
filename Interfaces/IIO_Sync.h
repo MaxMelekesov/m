@@ -17,12 +17,15 @@
 
 namespace m::ifc {
 
+template <typename TimeUnit>
 class IIO_Sync {
  public:
+  using type = TimeUnit;
+
   virtual ~IIO_Sync() {}
 
-  virtual bool write(std::span<uint8_t const> data, Ms timeout) = 0;
-  virtual bool read(std::span<uint8_t> data, Ms timeout) = 0;
+  virtual bool write(std::span<uint8_t const> data, type timeout) = 0;
+  virtual bool read(std::span<uint8_t> data, type timeout) = 0;
 
   virtual uint32_t getBaudrate() = 0;
   virtual bool setBaudrate(uint32_t baud) { return false; }

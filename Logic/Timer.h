@@ -16,29 +16,30 @@
 #include <functional>
 
 namespace m {
-class TimerMs {
- private:
-  using Ms = ifc::Ms;
 
+template <typename TimeUnit>
+class Timer {
  public:
-  TimerMs(ifc::ITime& time) : time_(time) {}
+  using type = TimeUnit;
 
-  bool restart(Ms ms) {
+  Timer(ifc::ITime<type>& time) : time_(time) {}
+
+  bool restart(type value) {
     stop();
-    return start(ms);
+    return start(value);
   }
 
-  [[nodiscard]] bool start(Ms ms) {
+  [[nodiscard]] bool start(type value) {
     if (running_) return false;
-    start_ = time_.getTickMs();
-    wait_ = ms;
+    start_ = time_.getTick();
+    wait_ = value;
     running_ = true;
     return true;
   }
 
   bool reset() {
     if (!running_) return false;
-    start_ = time_.getTickMs();
+    start_ = time_.getTick();
     return true;
   }
 
@@ -52,53 +53,12 @@ class TimerMs {
   }
 
  private:
-  ifc::ITime& time_;
+  ifc::ITime<type>& time_;
 
-  Ms start_{0}, wait_{0};
+  type start_{0}, wait_{0};
   bool running_ = false;
 };
 
-class TimerUs {
- private:
-  using Us = ifc::Us;
-
- public:
-  TimerUs(ifc::ITime& time) : time_(time) {}
-
-  bool restart(Us us) {
-    stop();
-    return start(us);
-  }
-
-  [[nodiscard]] bool start(Us us) {
-    if (running_) return false;
-    start_ = time_.getTickUs();
-    wait_ = us;
-    running_ = true;
-    return true;
-  }
-
-  bool reset() {
-    if (!running_) return false;
-    start_ = time_.getTickUs();
-    return true;
-  }
-
-  void stop() { running_ = false; }
-
-  bool running() { return running_; };
-
-  bool timeOver() {
-    if (!running_) return false;
-    return time_.getDiff(start_) >= wait_;
-  }
-
- private:
-  ifc::ITime& time_;
-
-  Us start_{0}, wait_{0};
-  bool running_ = false;
-};
 }  // namespace m
 
 #endif  // TIMER_H

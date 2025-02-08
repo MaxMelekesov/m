@@ -29,17 +29,17 @@ class ModbusRtuProtocol {
   using type = TimeUnit;
 
   enum class Commands : uint8_t {
-    ReadCoils = 0,                  // 1
-    ReadDiscreteInputs,             // 2
-    ReadMultipleHoldingRegisters,   // 3
-    ReadInputRegisters,             // 4
-    WriteSingleCoil,                // 5
-    WriteSingleHoldingRegister,     // 6
-    WriteMultipleCoils,             // 15
-    WriteMultipleHoldingRegisters,  // 16
-    ReadServerId,                   // 17
-    ReadFileRecord,                 // 20
-    WriteFileRecord,                // 21
+    ReadCoils = 1,
+    ReadDiscreteInputs = 2,
+    ReadMultipleHoldingRegisters = 3,
+    ReadInputRegisters = 4,
+    WriteSingleCoil = 5,
+    WriteSingleHoldingRegister = 6,
+    WriteMultipleCoils = 15,
+    WriteMultipleHoldingRegisters = 16,
+    ReadServerId = 17,
+    ReadFileRecord = 20,
+    WriteFileRecord = 21,
   };
 
   enum class Error : uint8_t {
@@ -56,19 +56,29 @@ class ModbusRtuProtocol {
     type tx_response_delay;
   };
 
+  // ReadCoils callback
+  using RC_Cb = std::function<std::optional<m::ModbusRtuProtocol<type>::Error>(
+      uint16_t start_addr, uint16_t coils_num, std::span<uint8_t> coils)>;
+
+  // ReadMultipleHoldingRegisters callback
   using RMHR_Cb =
       std::function<std::optional<m::ModbusRtuProtocol<type>::Error>(
           uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
 
+  struct Callbacks {
+    const RMHR_Cb *rmhr_cb = nullptr;
+    const RC_Cb *rc_cb = nullptr;
+  };
+
   ModbusRtuProtocol(m::ifc::IDataLink &data_link, m::ifc::ITime<type> &time,
                     Timings timings, std::span<uint8_t> rx_buf,
-                    std::span<uint8_t> tx_buf, const RMHR_Cb &rmhr_cb)
+                    std::span<uint8_t> tx_buf, Callbacks cb)
       : data_link_(data_link),
         time_(time),
         timings_(timings),
         rx_buf_(rx_buf),
         tx_buf_(tx_buf),
-        rmhr_cb_(rmhr_cb) {}
+        cb_(cb) {}
 
   bool handle() {
     if (data_link_.error()) {
@@ -160,7 +170,7 @@ class ModbusRtuProtocol {
   std::span<uint8_t> rx_buf_;
   std::span<uint8_t> tx_buf_;
 
-  const RMHR_Cb &rmhr_cb_;
+  Callbacks cb_;
 
   uint8_t addr_;
 
@@ -186,13 +196,15 @@ class ModbusRtuProtocol {
       return std::nullopt;
     }
 
-    uint16_t lo = rx_buf.last(2)[0];
-    uint16_t hi = rx_buf.last(2)[1];
-    auto crc_origin = lo + (hi << 8);
-    auto crc = crc16(rx_buf.first(rx_buf.size() - 2));
+    {
+      uint16_t lo = rx_buf.last(2)[0];
+      uint16_t hi = rx_buf.last(2)[1];
+      auto crc_origin = lo + (hi << 8);
+      auto crc = crc16(rx_buf.first(rx_buf.size() - 2));
 
-    if (crc != crc_origin) {
-      return std::nullopt;
+      if (crc != crc_origin) {
+        return std::nullopt;
+      }
     }
 
     uint8_t addr = rx_buf[0];  // 0 - 247 valid
@@ -203,63 +215,67 @@ class ModbusRtuProtocol {
       tx_buf[1] = cmd;
       uint32_t response_size = 2;
 
-      auto cmd_id = getCmdId(cmd);
-
-      if (cmd_id) {
-        switch (cmd_id.value()) {
-          case static_cast<uint8_t>(Commands::ReadCoils): {
-          } break;
-          case static_cast<uint8_t>(Commands::ReadDiscreteInputs): {
-          } break;
-          case static_cast<uint8_t>(Commands::ReadMultipleHoldingRegisters): {
-            if (auto err = processReadMultipleHoldingRegisters(
+      switch (cmd) {
+        case static_cast<uint8_t>(Commands::ReadCoils): {
+          if (!cb_.rc_cb) {
+            tx_buf[1] += 0x80;
+            tx_buf[2] = static_cast<uint8_t>(Error::IllegalFunction);
+            response_size += 1;
+          } else {
+            if (auto [err, size] =
+                    processReadCoils(rx_buf.subspan(2, rx_buf.size() - 4),
+                                     tx_buf.subspan(2, tx_buf.size() - 4));
+                err) {
+              tx_buf[1] += 0x80;
+              tx_buf[2] = static_cast<uint8_t>(err.value());
+              response_size += 1;
+            } else {
+              response_size += size;
+            }
+          }
+        } break;
+        case static_cast<uint8_t>(Commands::ReadDiscreteInputs): {
+        } break;
+        case static_cast<uint8_t>(Commands::ReadMultipleHoldingRegisters): {
+          if (!cb_.rmhr_cb) {
+            tx_buf[1] += 0x80;
+            tx_buf[2] = static_cast<uint8_t>(Error::IllegalFunction);
+            response_size += 1;
+          } else {
+            if (auto [err, size] = processReadMultipleHoldingRegisters(
                     rx_buf.subspan(2, rx_buf.size() - 4),
                     tx_buf.subspan(2, tx_buf.size() - 4));
                 err) {
               tx_buf[1] += 0x80;
               tx_buf[2] = static_cast<uint8_t>(err.value());
               response_size += 1;
+            } else {
+              response_size += size;
             }
-          } break;
-          case static_cast<uint8_t>(Commands::ReadInputRegisters): {
-          } break;
-          case static_cast<uint8_t>(Commands::WriteSingleCoil): {
-          } break;
-          case static_cast<uint8_t>(Commands::WriteSingleHoldingRegister): {
-          } break;
-          case static_cast<uint8_t>(Commands::WriteMultipleCoils): {
-          } break;
-          case static_cast<uint8_t>(Commands::WriteMultipleHoldingRegisters): {
-          } break;
-          case static_cast<uint8_t>(Commands::ReadServerId): {
-          } break;
-          case static_cast<uint8_t>(Commands::ReadFileRecord): {
-          } break;
-          case static_cast<uint8_t>(Commands::WriteFileRecord): {
-          } break;
+          }
+        } break;
+        case static_cast<uint8_t>(Commands::ReadInputRegisters): {
+        } break;
+        case static_cast<uint8_t>(Commands::WriteSingleCoil): {
+        } break;
+        case static_cast<uint8_t>(Commands::WriteSingleHoldingRegister): {
+        } break;
+        case static_cast<uint8_t>(Commands::WriteMultipleCoils): {
+        } break;
+        case static_cast<uint8_t>(Commands::WriteMultipleHoldingRegisters): {
+        } break;
+        case static_cast<uint8_t>(Commands::ReadServerId): {
+        } break;
+        case static_cast<uint8_t>(Commands::ReadFileRecord): {
+        } break;
+        case static_cast<uint8_t>(Commands::WriteFileRecord): {
+        } break;
 
-          default: {
-            tx_buf[1] += 0x80;
-            tx_buf[2] = static_cast<uint8_t>(Error::IllegalFunction);
-            response_size += 1;
-          } break;
-        }
-
-        // if (cmd_handlers_.at(cmd_id.value())) {
-        //   auto [ok, size] = cmd_handlers_.at(cmd_id.value())(
-        //       rx_buf.subspan(2, rx_buf.size() - 4), tx_buf.subspan(2));
-
-        //   response_size += size;
-        //   if (!ok) tx_buf[1] += 0x80;
-        // } else {
-        //   tx_buf[1] += 0x80;
-        //   tx_buf[2] = (uint8_t)Error::IllegalFunction;
-        //   response_size += 1;
-        // }
-      } else {
-        tx_buf[1] += 0x80;
-        tx_buf[2] = (uint8_t)Error::IllegalFunction;
-        response_size += 1;
+        default: {
+          tx_buf[1] += 0x80;
+          tx_buf[2] = static_cast<uint8_t>(Error::IllegalFunction);
+          response_size += 1;
+        } break;
       }
 
       auto crc = crc16(tx_buf.first(response_size));
@@ -274,53 +290,83 @@ class ModbusRtuProtocol {
     return std::nullopt;
   }
 
-  std::optional<uint8_t> getCmdId(uint8_t cmd) {
-    std::optional<uint8_t> temp;
-    if (cmd >= 1 && cmd <= 6) {
-      temp = cmd - 1;
-    } else if (cmd >= 15 && cmd <= 17) {
-      temp = cmd - 9;
-    } else if (cmd >= 20 && cmd <= 21) {
-      temp = cmd - 11;
+  std::tuple<std::optional<m::ModbusRtuProtocol<type>::Error>, uint32_t>
+  processReadCoils(std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
+    if (rx_buf.size() != 4) {
+      return {m::ModbusRtuProtocol<type>::Error::IllegalDataValue, 0};
     }
-    return temp;
-  };
 
-  std::optional<m::ModbusRtuProtocol<type>::Error>
+    uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
+    uint16_t coils_num = (rx_buf[2] << 8) + rx_buf[3];
+
+    if (coils_num < 1 || coils_num > 0x07D0) {
+      return {m::ModbusRtuProtocol<type>::Error::IllegalDataValue, 0};
+    }
+
+    {
+      uint32_t range = (int32_t)start_address + (int32_t)coils_num;
+      if (range > 0xFFFF) {
+        return {m::ModbusRtuProtocol<type>::Error::IllegalDataAddress, 0};
+      }
+    }
+
+    uint32_t byte_count = (coils_num + 7) / 8;
+    if (byte_count + 1 > tx_buf.size()) {
+      return {m::ModbusRtuProtocol<type>::Error::SlaveDeviceFailure, 0};
+    }
+
+    tx_buf[0] = byte_count;
+    tx_buf = tx_buf.subspan(1);
+
+    std::span<uint8_t> coils = tx_buf.first(byte_count);
+
+    if (auto err = (*cb_.rc_cb)(start_address, coils_num, coils); err) {
+      return {err, 0};
+    } else {
+      return {std::nullopt, byte_count + 1};
+    }
+  }
+
+  std::tuple<std::optional<m::ModbusRtuProtocol<type>::Error>, uint32_t>
   processReadMultipleHoldingRegisters(std::span<uint8_t> rx_buf,
                                       std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return m::ModbusRtuProtocol<type>::Error::IllegalDataValue;
+      return {m::ModbusRtuProtocol<type>::Error::IllegalDataValue, 0};
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t regs_num = (rx_buf[2] << 8) + rx_buf[3];
 
     if (regs_num < 1 || regs_num > 0x00'7D) {
-      return m::ModbusRtuProtocol<type>::Error::IllegalDataValue;
+      return {m::ModbusRtuProtocol<type>::Error::IllegalDataValue, 0};
     }
 
     {
       uint32_t range = (int32_t)start_address + (int32_t)regs_num;
       if (range > 0xFF'FF) {
-        return m::ModbusRtuProtocol<type>::Error::IllegalDataAddress;
+        return {m::ModbusRtuProtocol<type>::Error::IllegalDataAddress, 0};
       }
+    }
+
+    uint32_t byte_count = regs_num * 2;
+    if (byte_count + 1 > tx_buf.size()) {
+      return {m::ModbusRtuProtocol<type>::Error::SlaveDeviceFailure, 0};
     }
 
     tx_buf[0] = regs_num * 2;
     tx_buf = tx_buf.subspan(1);
 
     std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t *>(tx_buf.data()), tx_buf.size() / 2};
+        reinterpret_cast<uint16_t *>(tx_buf.data()), regs_num};
 
-    if (auto err = rmhr_cb_(start_address, regs_num, regs); err) {
-      return err;
+    if (auto err = (*cb_.rmhr_cb)(start_address, regs_num, regs); err) {
+      return {err, 0};
     } else {
       swapBytesInSpan(regs);
-      return std::nullopt;
+      return {std::nullopt, byte_count + 1};
     }
 
-    return std::nullopt;
+    return {std::nullopt, byte_count + 1};
   }
 
   void swapBytesInSpan(std::span<uint16_t> regs) {
@@ -329,14 +375,12 @@ class ModbusRtuProtocol {
     }
   }
 
-  constexpr uint16_t byteswap(uint16_t value) {
-    return (value >> 8) | (value << 8);
-  }
+  uint16_t byteswap(uint16_t value) { return (value >> 8) | (value << 8); }
 
   uint16_t crc16(std::span<uint8_t> data) {
-    static const uint16_t table[2] = {0x0000, 0xA001};
-    volatile uint16_t crc = 0xFFFF;
-    volatile uint16_t xorv = 0;
+    static const uint16_t table[2] = {0x00'00, 0xA0'01};
+    uint16_t crc = 0xFF'FF;
+    uint16_t xorv = 0;
 
     for (auto i = 0u; i < data.size(); ++i) {
       crc ^= data[i];
@@ -353,4 +397,4 @@ class ModbusRtuProtocol {
 };
 }  // namespace m
 
-#endif
+#endif  // MODBUS_RTU_PROTOCOL_H

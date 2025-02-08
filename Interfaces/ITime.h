@@ -21,9 +21,9 @@ class ITime {
 
   virtual ~ITime() {}
 
-  virtual void delay(type us) = 0;
+  virtual void delay(type value) = 0;
   virtual type getTick() = 0;
-  virtual type getDiff(type start) = 0;
+  virtual type getDiff(type value) = 0;
 };
 }  // namespace m::ifc
 

@@ -86,8 +86,8 @@ class DataLinkAsync : public ifc::IDataLink {
       return false;
     }
 
-    tx_timeout_timer_.start(
-        Us{tx_buf.size() * 1'000'000 / io_.getBaudrate() + 3'000});
+    tx_timeout_timer_.restart(
+        type{tx_buf.size() * 1'000'000 / io_.getBaudrate() + 3'000});
 
     return true;
   }

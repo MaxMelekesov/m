@@ -76,20 +76,4 @@ class Celsius {
   type value_;
 };
 
-inline constexpr Celsius<float> operator""_Cf(unsigned long long value) {
-  return Celsius<float>(static_cast<float>(value));
-}
-
-inline constexpr Celsius<float> operator""_Cf(long double value) {
-  return Celsius<float>(static_cast<float>(value));
-}
-
-inline constexpr Celsius<int32_t> operator""_Ci(unsigned long long value) {
-  return Celsius<int32_t>(static_cast<int32_t>(value));
-}
-
-inline constexpr Celsius<int32_t> operator""_Ci(long double value) {
-  return Celsius<int32_t>(static_cast<int32_t>(value));
-}
-
 #endif  // CELSIUS_H

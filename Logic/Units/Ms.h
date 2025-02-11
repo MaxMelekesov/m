@@ -76,8 +76,4 @@ class Ms {
   type value_;
 };
 
-static inline constexpr Ms<uint32_t> operator""_Ms(uint64_t value) {
-  return Ms{static_cast<uint32_t>(value)};
-}
-
 #endif  // MS_H

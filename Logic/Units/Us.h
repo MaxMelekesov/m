@@ -76,8 +76,4 @@ class Us {
   type value_;
 };
 
-static inline constexpr Us<uint32_t> operator""_Us(uint64_t value) {
-  return Us{static_cast<uint32_t>(value)};
-}
-
 #endif  // US_H

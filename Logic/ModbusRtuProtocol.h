@@ -104,7 +104,7 @@ class ModbusRtuProtocol {
 
   ModbusRtuProtocol(m::ifc::IDataLink &data_link, m::ifc::ITime<type> &time,
                     Timings timings, std::span<uint8_t> rx_buf,
-                    std::span<uint8_t> tx_buf, Callbacks cb)
+                    std::span<uint8_t> tx_buf, Callbacks &cb)
       : data_link_(data_link),
         time_(time),
         timings_(timings),
@@ -202,7 +202,7 @@ class ModbusRtuProtocol {
   std::span<uint8_t> rx_buf_;
   std::span<uint8_t> tx_buf_;
 
-  Callbacks cb_;
+  Callbacks &cb_;
 
   uint8_t addr_ = 0;
 
@@ -272,6 +272,24 @@ class ModbusRtuProtocol {
             response_size += 1;
           } else {
             if (auto [err, size] = processReadDiscreteInputs(
+                    rx_buf.subspan(2, rx_buf.size() - 4),
+                    tx_buf.subspan(2, tx_buf.size() - 4));
+                err) {
+              tx_buf[1] += 0x80;
+              tx_buf[2] = static_cast<uint8_t>(err.value());
+              response_size += 1;
+            } else {
+              response_size += size;
+            }
+          }
+        } break;
+        case static_cast<uint8_t>(Commands::ReadMultipleHoldingRegisters): {
+          if (!cb_.rmhr_cb) {
+            tx_buf[1] += 0x80;
+            tx_buf[2] = static_cast<uint8_t>(Error::IllegalFunction);
+            response_size += 1;
+          } else {
+            if (auto [err, size] = processReadMultipleHoldingRegisters(
                     rx_buf.subspan(2, rx_buf.size() - 4),
                     tx_buf.subspan(2, tx_buf.size() - 4));
                 err) {

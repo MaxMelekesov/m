@@ -31,6 +31,11 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
     htim5_.Init.Period = 0xFF'FF'FF'FF;
     htim5_.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim5_.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
+    htim5_.Base_MspInitCallback = [](TIM_HandleTypeDef* htim) {
+      __HAL_RCC_TIM5_CLK_ENABLE();
+    };
+
     if (HAL_TIM_Base_Init(&htim5_) != HAL_OK) {
     }
     sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;

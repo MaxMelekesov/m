@@ -16,8 +16,6 @@
 namespace m::ifc {
 class ILog {
  public:
-  using type = T;
-
   virtual ~ILog() {}
 
   virtual void add(std::string_view text) = 0;

@@ -20,6 +20,9 @@ class ITempSense {
   virtual ~ITempSense() {}
 
   virtual type value() = 0;
+
+  virtual type min() = 0;
+  virtual type max() = 0;
 };
 
 class ITempSenseError {

@@ -24,9 +24,7 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
     TIM_MasterConfigTypeDef sMasterConfig = {0};
 
     htim5_.Instance = TIM5;
-    htim5_.Init.Prescaler = 84 - 1;  // TIM5 freq 84MHz
-    // TODO: calc prescaler automaticaly
-    // htim5_.Init.Prescaler = (HAL_RCC_GetPCLK1Freq() * 2 / 1'000'000) - 1;
+    htim5_.Init.Prescaler = (HAL_RCC_GetPCLK1Freq() * 2 / 1'000'000) - 1;
     htim5_.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim5_.Init.Period = 0xFF'FF'FF'FF;
     htim5_.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -36,16 +34,14 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
       __HAL_RCC_TIM5_CLK_ENABLE();
     };
 
-    if (HAL_TIM_Base_Init(&htim5_) != HAL_OK) {
-    }
+    HAL_TIM_Base_Init(&htim5_);
+
     sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-    if (HAL_TIM_ConfigClockSource(&htim5_, &sClockSourceConfig) != HAL_OK) {
-    }
+    HAL_TIM_ConfigClockSource(&htim5_, &sClockSourceConfig);
+
     sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
     sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-    if (HAL_TIMEx_MasterConfigSynchronization(&htim5_, &sMasterConfig) !=
-        HAL_OK) {
-    }
+    HAL_TIMEx_MasterConfigSynchronization(&htim5_, &sMasterConfig);
 
     HAL_TIM_Base_Start(&htim5_);
   }

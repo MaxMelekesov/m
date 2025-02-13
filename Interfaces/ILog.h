@@ -11,7 +11,6 @@
 #ifndef ILOG_H
 #define ILOG_H
 
-#include <cstdint>
 #include <string_view>
 
 namespace m::ifc {

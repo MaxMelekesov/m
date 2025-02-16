@@ -19,9 +19,9 @@ class IIt {
   IIt(const std::function<void()>& cb) : cb_(cb) {}
   virtual ~IIt() {}
 
-  virtual bool start() { return false; }
-  virtual bool running() { return false; }
-  virtual bool stop() { return false; }
+  virtual bool start() = 0;
+  virtual bool running() = 0;
+  virtual bool stop() = 0;
 
  protected:
   const std::function<void()>& cb_;

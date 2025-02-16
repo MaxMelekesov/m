@@ -141,7 +141,7 @@ class PY25Q128HA : public m::ifc::IMemory {
     auto stat_ok = timeout_.execWithTimeout(
         [&]() -> bool {
           auto res = writeInProgress();
-          return res.value_or(false);
+          return !res.value_or(false);
         },
         Ms<type>{5});
 
@@ -180,7 +180,7 @@ class PY25Q128HA : public m::ifc::IMemory {
     auto stat_ok = timeout_.execWithTimeout(
         [&]() -> bool {
           auto res = writeInProgress();
-          return res.value_or(false);
+          return !res.value_or(false);
         },
         Ms<type>{1'000});
 

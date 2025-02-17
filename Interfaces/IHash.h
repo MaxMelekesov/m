@@ -24,6 +24,8 @@ class IHash {
   virtual bool check(std::span<uint8_t const> data, type& hash) = 0;
 
   virtual type calc(std::span<uint8_t const> data) = 0;
+
+  constexpr uint32_t size() const { return hash_bytes; }
 };
 }  // namespace m::ifc
 

@@ -28,14 +28,13 @@ class IState {
   virtual std::optional<uint32_t> checkEvents() = 0;
   virtual void exit() = 0;
 
- protected:
+ private:
+  std::span<IState*> const transitions_;
+
   IState* processEvent(uint32_t event) {
     if (transitions_.size() <= event) return this;
     return transitions_[event];
   }
-
- private:
-  std::span<IState*> const transitions_;
 
   friend Fsm;
 };

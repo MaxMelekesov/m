@@ -91,26 +91,27 @@ class ModbusRtuProtocol {
       std::function<std::optional<m::ModbusRtuProtocol<type>::Error>(
           uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
 
-  struct Callbacks {
-    const RC_Cb *rc_cb = nullptr;
-    const RDI_Cb *rdi_cb = nullptr;
-    const RMHR_Cb *rmhr_cb = nullptr;
-    const RIR_Cb *rir_cb = nullptr;
-    const WSC_Cb *wsc_cb = nullptr;
-    const WSHR_Cb *wshr_cb = nullptr;
-    const WMC_Cb *wmc_cb = nullptr;
-    const WMHR_Cb *wmhr_cb = nullptr;
-  };
-
   ModbusRtuProtocol(m::ifc::IDataLink &data_link, m::ifc::ITime<type> &time,
                     Timings timings, std::span<uint8_t> rx_buf,
-                    std::span<uint8_t> tx_buf, Callbacks &cb)
+                    std::span<uint8_t> tx_buf)
       : data_link_(data_link),
         time_(time),
         timings_(timings),
         rx_buf_(rx_buf),
-        tx_buf_(tx_buf),
-        cb_(cb) {}
+        tx_buf_(tx_buf) {}
+
+  void addReadCoilsCallback(RC_Cb &cb) { cb_.rc_cb = &cb; }
+  void addReadDiscreteInputsCallback(RDI_Cb &cb) { cb_.rdi_cb = &cb; }
+  void addReadMultipleHoldingRegistersCallback(RMHR_Cb &cb) {
+    cb_.rmhr_cb = &cb;
+  }
+  void addReadInputRegistersCallback(RIR_Cb &cb) { cb_.rir_cb = &cb; }
+  void addWriteSingleCoilCallback(WSC_Cb &cb) { cb_.wsc_cb = &cb; }
+  void addWriteSingleHoldingRegisterCallback(WSHR_Cb &cb) { cb_.wshr_cb = &cb; }
+  void addWriteMultipleCoilsCallback(WMC_Cb &cb) { cb_.wmc_cb = &cb; }
+  void addWriteMultipleHoldingRegistersCallback(WMHR_Cb &cb) {
+    cb_.wmhr_cb = &cb;
+  }
 
   bool handle() {
     if (data_link_.error()) {
@@ -202,7 +203,17 @@ class ModbusRtuProtocol {
   std::span<uint8_t> rx_buf_;
   std::span<uint8_t> tx_buf_;
 
-  Callbacks &cb_;
+  struct Callbacks {
+    const RC_Cb *rc_cb = nullptr;
+    const RDI_Cb *rdi_cb = nullptr;
+    const RMHR_Cb *rmhr_cb = nullptr;
+    const RIR_Cb *rir_cb = nullptr;
+    const WSC_Cb *wsc_cb = nullptr;
+    const WSHR_Cb *wshr_cb = nullptr;
+    const WMC_Cb *wmc_cb = nullptr;
+    const WMHR_Cb *wmhr_cb = nullptr;
+  };
+  Callbacks cb_;
 
   uint8_t addr_ = 0;
 

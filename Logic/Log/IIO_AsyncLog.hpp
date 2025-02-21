@@ -13,7 +13,9 @@
 
 #include <IIO_Async.hpp>
 #include <ILog.hpp>
+#include <algorithm>
 #include <array>
+#include <ranges>
 #include <string_view>
 
 namespace m {
@@ -25,11 +27,9 @@ class IIO_AsyncLog : public m::ifc::ILog {
 
   void add(std::string_view text) override {
     if (count_ < Lines) {
-      if (text.size() > Line_Length) {
-        text = text.substr(0, Line_Length);
-      }
-      std::copy(text.begin(), text.end(), buffer_[write_index_].begin());
-      buffer_[write_index_][text.size()] = '\0';
+      auto truncated_text = text | std::views::take(Line_Length);
+      std::ranges::copy(truncated_text, buffer_[write_index_].begin());
+      buffer_[write_index_][truncated_text.size()] = '\0';
       write_index_ = (write_index_ + 1) % Lines;
       ++count_;
     }
@@ -38,9 +38,11 @@ class IIO_AsyncLog : public m::ifc::ILog {
   void handle() {
     if (count_ > 0 && io_.writeDone()) {
       auto& line = buffer_[read_index_];
-      if (io_.writeAsync(std::span<uint8_t const>(
+      if (io_.writeAsync(std::span<const uint8_t>(
               reinterpret_cast<const uint8_t*>(line.data()),
-              strlen(line.data(), line.size()))) == true) {
+              std::ranges::distance(line | std::views::take_while([](char c) {
+                                      return c != '\0';
+                                    })))) == true) {
         read_index_ = (read_index_ + 1) % Lines;
         --count_;
       } else {
@@ -56,14 +58,6 @@ class IIO_AsyncLog : public m::ifc::ILog {
   std::size_t write_index_ = 0;
   std::size_t read_index_ = 0;
   std::size_t count_ = 0;
-
-  std::size_t strlen(const char* str, std::size_t max_len) {
-    std::size_t len = 0;
-    while (len < max_len && str[len] != '\0') {
-      ++len;
-    }
-    return len;
-  }
 };
 
 }  // namespace m

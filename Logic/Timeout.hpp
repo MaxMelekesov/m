@@ -12,7 +12,6 @@
 #define TIMEOUT_H
 
 #include <ITime.hpp>
-
 #include <functional>
 
 namespace m {

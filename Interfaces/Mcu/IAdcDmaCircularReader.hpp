@@ -20,21 +20,17 @@ class IAdcDmaCircularReader {
  public:
   using type = T;
 
-  IAdcDmaCircularReader(
-      const std::function<void(std::span<volatile type> first_half)>&
-          half_conv_cb,
-      const std::function<void(std::span<volatile type> second_half)>& conv_cb)
-      : half_conv_cb_(half_conv_cb), conv_cb_(conv_cb) {}
-
   virtual ~IAdcDmaCircularReader() {}
+
+  virtual void setHalfConversionCallback(
+      std::function<void(std::span<volatile type>)>&& first_half_cb) = 0;
+
+  virtual void setFullConversionCallback(
+      std::function<void(std::span<volatile type>)>&& second_half_cb) = 0;
 
   virtual bool start(std::span<volatile type> data) = 0;
   virtual bool running() = 0;
   virtual bool stop() = 0;
-
- protected:
-  const std::function<void(std::span<volatile type> first_half)>& half_conv_cb_;
-  const std::function<void(std::span<volatile type> second_half)>& conv_cb_;
 };
 }  // namespace m::ifc::mcu
 

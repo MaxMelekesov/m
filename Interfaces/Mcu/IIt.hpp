@@ -18,7 +18,7 @@ class IIt {
  public:
   virtual ~IIt() {}
 
-  virtual void setCallback(const std::function<void()>& cb) = 0;
+  virtual void setCallback(std::function<void()>&& cb) = 0;
 
   virtual bool start() = 0;
   virtual bool running() = 0;

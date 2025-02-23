@@ -99,17 +99,25 @@ class ModbusRtuProtocol {
         rx_buf_(rx_buf),
         tx_buf_(tx_buf) {}
 
-  void addReadCoilsCallback(RC_Cb &cb) { cb_.rc_cb = &cb; }
-  void addReadDiscreteInputsCallback(RDI_Cb &cb) { cb_.rdi_cb = &cb; }
-  void addReadMultipleHoldingRegistersCallback(RMHR_Cb &cb) {
-    cb_.rmhr_cb = &cb;
+  void addReadCoilsCallback(RC_Cb &&cb) { cb_.rc_cb = std::move(cb); }
+  void addReadDiscreteInputsCallback(RDI_Cb &&cb) {
+    cb_.rdi_cb = std::move(cb);
   }
-  void addReadInputRegistersCallback(RIR_Cb &cb) { cb_.rir_cb = &cb; }
-  void addWriteSingleCoilCallback(WSC_Cb &cb) { cb_.wsc_cb = &cb; }
-  void addWriteSingleHoldingRegisterCallback(WSHR_Cb &cb) { cb_.wshr_cb = &cb; }
-  void addWriteMultipleCoilsCallback(WMC_Cb &cb) { cb_.wmc_cb = &cb; }
-  void addWriteMultipleHoldingRegistersCallback(WMHR_Cb &cb) {
-    cb_.wmhr_cb = &cb;
+  void addReadMultipleHoldingRegistersCallback(RMHR_Cb &&cb) {
+    cb_.rmhr_cb = std::move(cb);
+  }
+  void addReadInputRegistersCallback(RIR_Cb &&cb) {
+    cb_.rir_cb = std::move(cb);
+  }
+  void addWriteSingleCoilCallback(WSC_Cb &&cb) { cb_.wsc_cb = std::move(cb); }
+  void addWriteSingleHoldingRegisterCallback(WSHR_Cb &&cb) {
+    cb_.wshr_cb = std::move(cb);
+  }
+  void addWriteMultipleCoilsCallback(WMC_Cb &&cb) {
+    cb_.wmc_cb = std::move(cb);
+  }
+  void addWriteMultipleHoldingRegistersCallback(WMHR_Cb &&cb) {
+    cb_.wmhr_cb = std::move(cb);
   }
 
   bool handle() {
@@ -203,14 +211,14 @@ class ModbusRtuProtocol {
   std::span<uint8_t> tx_buf_;
 
   struct Callbacks {
-    const RC_Cb *rc_cb = nullptr;
-    const RDI_Cb *rdi_cb = nullptr;
-    const RMHR_Cb *rmhr_cb = nullptr;
-    const RIR_Cb *rir_cb = nullptr;
-    const WSC_Cb *wsc_cb = nullptr;
-    const WSHR_Cb *wshr_cb = nullptr;
-    const WMC_Cb *wmc_cb = nullptr;
-    const WMHR_Cb *wmhr_cb = nullptr;
+    RC_Cb rc_cb;
+    RDI_Cb rdi_cb;
+    RMHR_Cb rmhr_cb;
+    RIR_Cb rir_cb;
+    WSC_Cb wsc_cb;
+    WSHR_Cb wshr_cb;
+    WMC_Cb wmc_cb;
+    WMHR_Cb wmhr_cb;
   };
   Callbacks cb_;
 
@@ -451,7 +459,7 @@ class ModbusRtuProtocol {
 
     std::span<uint8_t> coils = tx_buf.first(byte_count);
 
-    if (auto err = (*cb_.rc_cb)(start_address, coils_num, coils); err) {
+    if (auto err = cb_.rc_cb(start_address, coils_num, coils); err) {
       return {err, 0};
     } else {
       return {std::nullopt, byte_count + 1};
@@ -489,7 +497,7 @@ class ModbusRtuProtocol {
 
     std::span<uint8_t> inputs = tx_buf.first(byte_count);
 
-    if (auto err = (*cb_.rdi_cb)(start_address, inputs_num, inputs); err) {
+    if (auto err = cb_.rdi_cb(start_address, inputs_num, inputs); err) {
       return {err, 0};
     } else {
       return {std::nullopt, byte_count + 1};
@@ -528,7 +536,7 @@ class ModbusRtuProtocol {
     std::span<uint16_t> regs = std::span<uint16_t>{
         reinterpret_cast<uint16_t *>(tx_buf.data()), regs_num};
 
-    if (auto err = (*cb_.rmhr_cb)(start_address, regs_num, regs); err) {
+    if (auto err = cb_.rmhr_cb(start_address, regs_num, regs); err) {
       return {err, 0};
     } else {
       swapBytesInSpan(regs);
@@ -570,7 +578,7 @@ class ModbusRtuProtocol {
     std::span<uint16_t> regs = std::span<uint16_t>{
         reinterpret_cast<uint16_t *>(tx_buf.data()), regs_num};
 
-    if (auto err = (*cb_.rir_cb)(start_address, regs_num, regs); err) {
+    if (auto err = cb_.rir_cb(start_address, regs_num, regs); err) {
       return {err, 0};
     } else {
       swapBytesInSpan(regs);
@@ -587,7 +595,7 @@ class ModbusRtuProtocol {
     uint16_t addr = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t value = (rx_buf[2] << 8) + rx_buf[3];
 
-    if (auto err = (*cb_.wsc_cb)(addr, value); err) {
+    if (auto err = cb_.wsc_cb(addr, value); err) {
       return err;
     } else {
       std::copy(rx_buf.begin(), rx_buf.end(), tx_buf.begin());
@@ -605,7 +613,7 @@ class ModbusRtuProtocol {
     uint16_t addr = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t value = (rx_buf[2] << 8) + rx_buf[3];
 
-    if (auto err = (*cb_.wshr_cb)(addr, value); err) {
+    if (auto err = cb_.wshr_cb(addr, value); err) {
       return err;
     } else {
       std::copy(rx_buf.begin(), rx_buf.end(), tx_buf.begin());
@@ -634,7 +642,7 @@ class ModbusRtuProtocol {
 
     std::span<uint8_t> coils = rx_buf.subspan(5, byte_count);
 
-    if (auto err = (*cb_.wmc_cb)(start_address, coils_num, coils); err) {
+    if (auto err = cb_.wmc_cb(start_address, coils_num, coils); err) {
       return err;
     } else {
       std::copy(rx_buf.begin(), rx_buf.begin() + 4, tx_buf.begin());
@@ -664,7 +672,7 @@ class ModbusRtuProtocol {
     std::span<uint16_t> regs = std::span<uint16_t>{
         reinterpret_cast<uint16_t *>(rx_buf.subspan(5).data()), regs_num};
 
-    if (auto err = (*cb_.wmhr_cb)(start_address, regs_num, regs); err) {
+    if (auto err = cb_.wmhr_cb(start_address, regs_num, regs); err) {
       return err;
     } else {
       std::copy(rx_buf.begin(), rx_buf.begin() + 4, tx_buf.begin());

@@ -16,15 +16,13 @@
 namespace m::ifc::mcu {
 class IIt {
  public:
-  IIt(const std::function<void()>& cb) : cb_(cb) {}
   virtual ~IIt() {}
+
+  virtual void setCallback(const std::function<void()>& cb) = 0;
 
   virtual bool start() = 0;
   virtual bool running() = 0;
   virtual bool stop() = 0;
-
- protected:
-  const std::function<void()>& cb_;
 };
 }  // namespace m::ifc::mcu
 

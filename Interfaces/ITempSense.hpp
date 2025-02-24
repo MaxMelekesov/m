@@ -29,8 +29,8 @@ class ITempSenseError {
  public:
   virtual ~ITempSenseError() {}
 
-  virtual bool isShort() = 0;
-  virtual bool isBreak() = 0;
+  virtual bool shorted() = 0;
+  virtual bool broken() = 0;
 };
 }  // namespace m::ifc
 

@@ -35,7 +35,7 @@ class HashFAQ6 final : public ifc::IHash<4> {
   }
 
  private:
-  static uint32_t faq6(std::span<uint8_t const> data) {
+  uint32_t faq6(std::span<uint8_t const> data) {
     uint32_t hash = 0;
 
     for (uint32_t i = 0; i < data.size(); i++) {

@@ -12,7 +12,6 @@
 #define PIN_F4_H
 
 #include <IPin.hpp>
-
 #include <array>
 
 #include "stm32f4xx_hal.h"
@@ -73,16 +72,6 @@ class Pin final : public m::ifc::mcu::IPin {
   enum class InitState : bool { Reset = 0, Set };
   enum class Inversion : bool { Not_Inverted = 0, Inverted };
 
- private:
-  GPIO_TypeDef* const port_;
-  PinNum const pin_num_;
-  Mode const mode_;
-  Pull const pull_;
-  Speed const speed_;
-  Inversion const inversion_;
-  InitState const init_state_;
-  uint32_t const alternate_;
-
  public:
   Pin(GPIO_TypeDef* port, PinNum pin_num, Mode mode, Pull pull, Speed speed,
       Inversion inversion = Inversion::Not_Inverted,
@@ -99,13 +88,14 @@ class Pin final : public m::ifc::mcu::IPin {
 
     if (mode_ == Mode::Output_PP || mode_ == Mode::Output_OD) {
       if ((bool)init_state_ != (bool)inversion_)
-        HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(port_, static_cast<uint16_t>(pin_num_), GPIO_PIN_SET);
       else
-        HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(port_, static_cast<uint16_t>(pin_num_),
+                          GPIO_PIN_RESET);
     }
 
     GPIO_InitTypeDef GPIO_InitStruct{0};
-    GPIO_InitStruct.Pin = (uint32_t)pin_num_;
+    GPIO_InitStruct.Pin = static_cast<uint32_t>(pin_num_);
     GPIO_InitStruct.Mode = (uint32_t)mode_;
     GPIO_InitStruct.Pull = (uint32_t)pull_;
     GPIO_InitStruct.Speed = (uint32_t)speed_;
@@ -114,24 +104,36 @@ class Pin final : public m::ifc::mcu::IPin {
   }
 
   ~Pin() override {
-    HAL_GPIO_DeInit(port_, (uint32_t)pin_num_);
+    HAL_GPIO_DeInit(port_, static_cast<uint32_t>(pin_num_));
     rcc_.disableClock(port_);
   }
 
   void write(bool state) override {
     if (state != (bool)inversion_)
-      HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(port_, static_cast<uint32_t>(pin_num_), GPIO_PIN_SET);
     else
-      HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(port_, static_cast<uint32_t>(pin_num_), GPIO_PIN_RESET);
   }
 
   bool read() const override {
-    return HAL_GPIO_ReadPin(port_, (uint32_t)pin_num_) != (bool)inversion_;
+    return HAL_GPIO_ReadPin(port_, static_cast<uint32_t>(pin_num_)) !=
+           (bool)inversion_;
   }
 
-  void toggle() override { HAL_GPIO_TogglePin(port_, (uint32_t)pin_num_); }
+  void toggle() override {
+    HAL_GPIO_TogglePin(port_, static_cast<uint32_t>(pin_num_));
+  }
 
  private:
+  GPIO_TypeDef* const port_;
+  const PinNum pin_num_;
+  const Mode mode_;
+  const Pull pull_;
+  const Speed speed_;
+  const Inversion inversion_;
+  const InitState init_state_;
+  const uint32_t alternate_;
+
   class GpioRcc {
    private:
     std::array<uint32_t, 9> port_init_count{0};

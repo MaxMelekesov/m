@@ -25,31 +25,35 @@ class PinWrapper final : public m::ifc::mcu::IPin {
         init_state_(init_state) {
     if (mode_ == Pin::Mode::Output_PP || mode_ == Pin::Mode::Output_OD) {
       if ((bool)init_state_ != (bool)inversion_)
-        HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(port_, static_cast<uint16_t>(pin_num_), GPIO_PIN_SET);
       else
-        HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(port_, static_cast<uint16_t>(pin_num_),
+                          GPIO_PIN_RESET);
     }
   }
 
   void write(bool state) override {
     if (state != (bool)inversion_)
-      HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(port_, static_cast<uint32_t>(pin_num_), GPIO_PIN_SET);
     else
-      HAL_GPIO_WritePin(port_, (uint32_t)pin_num_, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(port_, static_cast<uint32_t>(pin_num_), GPIO_PIN_RESET);
   }
 
   bool read() const override {
-    return HAL_GPIO_ReadPin(port_, (uint32_t)pin_num_) != (bool)inversion_;
+    return HAL_GPIO_ReadPin(port_, static_cast<uint32_t>(pin_num_)) !=
+           (bool)inversion_;
   }
 
-  void toggle() override { HAL_GPIO_TogglePin(port_, (uint32_t)pin_num_); }
+  void toggle() override {
+    HAL_GPIO_TogglePin(port_, static_cast<uint32_t>(pin_num_));
+  }
 
  private:
   GPIO_TypeDef* const port_;
-  Pin::PinNum const pin_num_;
-  Pin::Mode mode_;
-  Pin::Inversion const inversion_;
-  Pin::InitState const init_state_;
+  const Pin::PinNum pin_num_;
+  const Pin::Mode mode_;
+  const Pin::Inversion inversion_;
+  const Pin::InitState init_state_;
 };
 
 #endif  // PIN_F4_WRAPPER_H

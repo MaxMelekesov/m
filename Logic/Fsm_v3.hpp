@@ -23,19 +23,16 @@ class Fsm_v3 {
   using StateVariant = std::variant<States...>;
   StateVariant currentState;
 
-  // Список всех событий
   using Events = EventTuple;
 
  public:
   constexpr Fsm_v3() = default;
 
-  // Установка состояния
   template <typename State>
   constexpr void setState() noexcept {
     currentState = State{};
   }
 
-  // Обработка события
   template <typename Event>
   constexpr void processEvent(const Event& event) {
     std::visit(
@@ -52,7 +49,6 @@ class Fsm_v3 {
         currentState);
   }
 
-  // Проверка всех событий для текущего состояния
   constexpr void checkEvents() {
     std::visit(
         [&](auto&& state) {
@@ -65,11 +61,8 @@ class Fsm_v3 {
         currentState);
   }
 
-  // Необработанные события по умолчанию
   template <typename State, typename Event>
-  constexpr void onUnhandledEvent(const State&, const Event&) {
-    // std::cout << "Event not handled\n";
-  }
+  constexpr void onUnhandledEvent(const State&, const Event&) {}
 };
 }  // namespace m
 

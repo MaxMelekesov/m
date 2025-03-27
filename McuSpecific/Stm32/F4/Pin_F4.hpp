@@ -115,7 +115,7 @@ class Pin final : public m::ifc::mcu::IPin {
       HAL_GPIO_WritePin(port_, static_cast<uint32_t>(pin_num_), GPIO_PIN_RESET);
   }
 
-  bool read() const override {
+  bool read() override {
     return HAL_GPIO_ReadPin(port_, static_cast<uint32_t>(pin_num_)) !=
            (bool)inversion_;
   }

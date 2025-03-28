@@ -17,12 +17,13 @@
 
 namespace m {
 
-// Uage example:
+/*
+// Usage example:
 // StateA -> Event1 -> StateB
 // StateA -> Event2 -> StateC
 // StateB -> Event2 -> StateC
 // StateC -> Event1 -> StateA
-/*
+
 struct StateA {};
 struct StateB {};
 struct StateC {};

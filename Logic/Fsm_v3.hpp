@@ -17,6 +17,62 @@
 
 namespace m {
 
+// Uage example:
+// StateA -> Event1 -> StateB
+// StateA -> Event2 -> StateC
+// StateB -> Event2 -> StateC
+// StateC -> Event1 -> StateA
+/*
+struct StateA {};
+struct StateB {};
+struct StateC {};
+
+struct Event1 {};
+struct Event2 {};
+
+using MyEvents = std::tuple<Event1, Event2>;
+
+class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
+ public:
+  constexpr void checkEvent(const StateA&, const Event1&) {
+    if (...) {
+      processEvent(Event1{});
+    }
+  }
+  constexpr void checkEvent(const StateA&, const Event2&) {
+    if (...) {
+      processEvent(Event2{});
+    }
+  }
+  constexpr void handleEvent(StateA, Event1) {  // Do job ...
+    setState<StateB>();
+  }
+  constexpr void handleEvent(StateA, Event2) {  // Do job ...
+    setState<StateC>();
+  }
+
+  constexpr void checkEvent(const StateB&, const Event2&) {
+    if (...) {
+      processEvent(Event2{});
+    }
+  }
+  constexpr void handleEvent(StateB, Event2) {
+    // Do job ...
+    setState<StateC>();
+  }
+
+  constexpr void checkEvent(const StateC&, const Event1&) {
+    if (...) {
+      processEvent(Event1{});
+    }
+  }
+  constexpr void handleEvent(StateC, Event1) {
+    // Do job ...
+    setState<StateA>();
+  }
+};
+*/
+
 template <typename Derived, typename EventTuple, typename... States>
 class Fsm_v3 {
  protected:

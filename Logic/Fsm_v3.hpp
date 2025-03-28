@@ -45,10 +45,12 @@ class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
       processEvent(Event2{});
     }
   }
-  constexpr void handleEvent(StateA, Event1) {  // Do job ...
+  constexpr void handleEvent(StateA, Event1) {  
+    // Do job ...
     setState<StateB>();
   }
-  constexpr void handleEvent(StateA, Event2) {  // Do job ...
+  constexpr void handleEvent(StateA, Event2) {  
+    // Do job ...
     setState<StateC>();
   }
 

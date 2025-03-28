@@ -37,12 +37,12 @@ class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
  public:
 
   void handle(){
-   if(...){ //Check common Event2 ...
+   if(...){ //Check Event2 for all states
      processEvent(Event2{});
    }
    checkEvents();
   }
-   
+
   constexpr void checkEvent(const StateA&, const Event1&) {
     if (...) {
       processEvent(Event1{});
@@ -81,6 +81,13 @@ class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
     setState<StateA>();
   }
 };
+
+int main(){
+  MyFsm fsm;
+  while(1){
+    fsm.handle();
+  }
+}
 */
 
 template <typename Derived, typename EventTuple, typename... States>

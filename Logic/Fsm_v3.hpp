@@ -35,16 +35,20 @@ using MyEvents = std::tuple<Event1, Event2>;
 
 class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
  public:
+
+  void handle(){
+   if(...){ //Check common Event2 ...
+     processEvent(Event2{});
+   }
+   checkEvents();
+  }
+   
   constexpr void checkEvent(const StateA&, const Event1&) {
     if (...) {
       processEvent(Event1{});
     }
   }
-  constexpr void checkEvent(const StateA&, const Event2&) {
-    if (...) {
-      processEvent(Event2{});
-    }
-  }
+
   template <typename State, typename Event>
   constexpr void handleEvent(const State&, const Event&) {
     if constexpr (std::is_same_v<State, StateA> &&

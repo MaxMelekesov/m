@@ -23,6 +23,9 @@ namespace m {
 // StateA -> Event2 -> StateC
 // StateB -> Event2 -> StateC
 // StateC -> Event1 -> StateA
+// StateA -> ErrorEvent -> ErrorState
+// StateB -> ErrorEvent -> ErrorState
+// StateC -> ErrorEvent -> ErrorState
 
 struct StateA {};
 struct StateB {};
@@ -30,6 +33,7 @@ struct StateC {};
 
 struct Event1 {};
 struct Event2 {};
+struct EventError {};
 
 using MyEvents = std::tuple<Event1, Event2>;
 
@@ -40,7 +44,16 @@ class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
    if(...){ //Check Event2 for all states
      processEvent(Event2{});
    }
+   if(...){ //Check errors for all states
+     processEvent(EventError{});
+   }
    checkEvents();
+  }
+
+  template <typename State>
+  constexpr void handleEvent(State, ErrorEvent) {
+    //Do job ...
+    setState<ErrorState>();
   }
 
   constexpr void checkEvent(const StateA&, const Event1&) {

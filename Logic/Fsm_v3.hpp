@@ -129,6 +129,10 @@ class Fsm_v3 {
                         }) {
             static_cast<Derived*>(this)->handleEvent(state, event);
           } else {
+            static_assert(
+                requires(Derived d, decltype(state) s, const Event& e) {
+                  d.onUnhandledEvent(s, e);
+                }, "Derived class must implement onUnhandledEvent.");
             static_cast<Derived*>(this)->onUnhandledEvent(state, event);
           }
         },

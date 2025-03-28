@@ -45,20 +45,23 @@ class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
       processEvent(Event2{});
     }
   }
-  constexpr void handleEvent(StateA, Event1) {  
-    // Do job ...
-    setState<StateB>();
-  }
-  constexpr void handleEvent(StateA, Event2) {  
-    // Do job ...
-    setState<StateC>();
-  }
-
-  constexpr void checkEvent(const StateB&, const Event2&) {
-    if (...) {
-      processEvent(Event2{});
+  template <typename State, typename Event>
+  constexpr void handleEvent(const State&, const Event&) {
+    if constexpr (std::is_same_v<State, StateA> &&
+                  std::is_same_v<Event, Event1>) {
+      //Do job ...
+      setState<StateB>();
+    } else if constexpr (std::is_same_v<State, StateA> &&
+                         std::is_same_v<Event, Event2>) {
+      //Do job ...
+      setState<StateC>();
+    }else if constexpr (std::is_same_v<State, StateB> &&
+                         std::is_same_v<Event, Event2>) {
+      //Do job ...
+      setState<StateC>();
     }
   }
+
   constexpr void handleEvent(StateB, Event2) {
     // Do job ...
     setState<StateC>();

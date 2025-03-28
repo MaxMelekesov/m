@@ -112,7 +112,7 @@ class Fsm_v3 {
   using Events = EventTuple;
 
  public:
-  constexpr Fsm_v3() = default;
+  constexpr Fsm_v3() : currentState(std::in_place_index<0>) {}
 
   template <typename State>
   constexpr void setState() noexcept {

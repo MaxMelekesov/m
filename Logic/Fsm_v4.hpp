@@ -90,6 +90,12 @@ class Fsm_v4 {
     if constexpr (std::is_void_v<TransitionType>) {
       return false;
     } else {
+      if constexpr (requires {
+                      static_cast<Derived*>(this)->onEvent(EventType{});
+                    }) {
+        static_cast<Derived*>(this)->onEvent(EventType{});
+      }
+      
       invokeHandleEvent<typename TransitionType::From, EventType>();
       setState<typename TransitionType::To>();
       return true;
@@ -121,6 +127,12 @@ class Fsm_v4 {
                                                             EventType{});
                   }) {
       if (static_cast<Derived*>(this)->checkEvent(FromState{}, EventType{})) {
+        if constexpr (requires {
+                        static_cast<Derived*>(this)->onEvent(EventType{});
+                      }) {
+          static_cast<Derived*>(this)->onEvent(EventType{});
+        }
+        
         invokeHandleEvent<FromState, EventType>();
         setState<typename FindTransition<FromState, EventType,
                                          Transitions...>::type::To>();

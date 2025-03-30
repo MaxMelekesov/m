@@ -93,6 +93,8 @@ class MyFsm : public m::Fsm_v3<MyFsm, MyEvents, StateA, StateB, StateC> {
     // Do job ...
     setState<StateA>();
   }
+
+  friend Fsm_v3;
 };
 
 int main(){
@@ -118,8 +120,13 @@ class Fsm_v3 {
 
  public:
   template <typename State>
-  constexpr void setState() noexcept {
+  constexpr void setState() {
     currentState = State{};
+  }
+
+  template <typename State>
+  [[nodiscard]] constexpr bool inState() const {
+    return std::holds_alternative<State>(currentState);
   }
 
   template <typename Event>

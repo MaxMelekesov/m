@@ -63,11 +63,9 @@ class Fsm_v4 {
                   "NewState must inherit from State<NewState>");
 
     if constexpr (requires {
-                    static_cast<Derived*>(this)->onStateTransition(
-                        std::decay_t<decltype(currentState)>(), NewState{});
+                    static_cast<Derived*>(this)->onStateTransition(NewState{});
                   }) {
-      static_cast<Derived*>(this)->onStateTransition(
-          std::decay_t<decltype(currentState)>(), NewState{});
+      static_cast<Derived*>(this)->onStateTransition(NewState{});
     }
 
     currentState.template emplace<NewState>();

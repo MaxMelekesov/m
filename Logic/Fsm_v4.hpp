@@ -8,12 +8,14 @@
 
 namespace m {
 
+// Базовые структуры для состояний и событий
 template <typename Derived>
 struct State {};
 
 template <typename Derived>
 struct Event {};
 
+// Определение перехода между состояниями
 template <typename FromState, typename EventType, typename ToState>
 struct Transition {
   using From = FromState;
@@ -21,10 +23,12 @@ struct Transition {
   using To = ToState;
 };
 
+// Концепт для проверки совпадения перехода
 template <typename TransitionType, typename CurrentState, typename EventType>
 concept IsMatch = std::is_same_v<typename TransitionType::From, CurrentState> &&
                   std::is_same_v<typename TransitionType::Event, EventType>;
 
+// Поиск подходящего перехода
 template <typename CurrentState, typename EventType, typename... Transitions>
 struct FindTransition;
 
@@ -38,27 +42,64 @@ struct FindTransition<CurrentState, EventType, First, Rest...> {
 
 template <typename CurrentState, typename EventType>
 struct FindTransition<CurrentState, EventType> {
-  using type = void;
+  using type = void;  // Нет подходящего перехода
 };
 
+// Главный класс FSM
 template <typename Derived, typename StateVariant, typename EventVariant,
           typename InitialState, typename... Transitions>
 class Fsm_v4 {
- public:
-  template <typename EventType>
-  void processEvent() {
-    using TransitionType =
-        typename FindTransition<std::decay_t<decltype(currentState)>, EventType,
-                                Transitions...>::type;
+ private:
+  StateVariant currentState;
 
-    static_assert(!std::is_void_v<TransitionType>);
-
-    invokeHandleEvent<typename TransitionType::From,
-                      typename TransitionType::Event>();
-
-    setState<typename TransitionType::To>();
+  // Установка нового состояния
+  template <typename NewState>
+  void setState() {
+    static_assert(std::is_base_of_v<State<NewState>, NewState>,
+                  "NewState must inherit from State<NewState>");
+    currentState.template emplace<NewState>();
+  }
+  // Вызов handleEvent через CRTP
+  template <typename FromState, typename EventType>
+  void invokeHandleEvent() {
+    static_cast<Derived*>(this)->handleEvent(FromState{}, EventType{});
   }
 
+  friend Derived;  // Дружба с производным классом
+
+  // Инициализация начального состояния
+  Fsm_v4() { currentState.template emplace<InitialState>(); }
+
+ public:
+  // Обработка события
+  void processEvent(const EventVariant& event) {
+    std::visit(
+        [this](auto&& e) {
+          using EventType = std::decay_t<decltype(e)>;
+          using TransitionType =
+              typename FindTransition<std::decay_t<decltype(currentState)>,
+                                      EventType, Transitions...>::type;
+
+          static_assert(
+              !std::is_void_v<TransitionType>,
+              "No matching transition found for the current state and event");
+
+          // Вызов обработчика события
+          invokeHandleEvent<typename TransitionType::From, EventType>();
+
+          // Переход в новое состояние
+          setState<typename TransitionType::To>();
+        },
+        event);
+  }
+
+  // Проверка текущего состояния
+  template <typename TargetState>
+  bool isInState() const {
+    return std::holds_alternative<TargetState>(currentState);
+  }
+
+  // Проверка всех возможных событий
   void checkEvents() {
     [&]<typename... Ts>(Ts...) {
       (static_cast<void>(
@@ -68,32 +109,22 @@ class Fsm_v4 {
   }
 
  private:
-  StateVariant currentState;
-
-  Fsm_v4() { currentState.template emplace<InitialState>(); }
-  friend Derived;
-
-  template <typename NewState>
-  void setState() {
-    static_assert(std::is_base_of_v<State<NewState>, NewState>);
-    currentState.template emplace<NewState>();
-  }
-
-  template <typename FromState, typename EventType>
-  void invokeHandleEvent() {
-    static_cast<Derived*>(this)->handleEvent(FromState{}, EventType{});
-  }
-
+  // Проверка и обработка события
   template <typename FromState, typename EventType>
   void checkAndProcessEvent() {
-    if (static_cast<Derived*>(this)->checkEvent(FromState{}, EventType{})) {
-      invokeHandleEvent<FromState, EventType>();
-      setState<typename FindTransition<FromState, EventType,
-                                       Transitions...>::type::To>();
+    // Проверяем наличие метода checkEvent в производном классе
+    if constexpr (requires {
+                    static_cast<Derived*>(this)->checkEvent(FromState{},
+                                                            EventType{});
+                  }) {
+      if (static_cast<Derived*>(this)->checkEvent(FromState{}, EventType{})) {
+        invokeHandleEvent<FromState, EventType>();
+        setState<typename FindTransition<FromState, EventType,
+                                         Transitions...>::type::To>();
+      }
     }
   }
 };
-
 }  // namespace m
 
 #endif  // FSM_V4_H

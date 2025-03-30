@@ -52,13 +52,25 @@ class Fsm_v4 {
  private:
   StateVariant currentState;
 
-  // Установка нового состояния
+  // Установка нового состояния с логированием
   template <typename NewState>
   void setState() {
     static_assert(std::is_base_of_v<State<NewState>, NewState>,
                   "NewState must inherit from State<NewState>");
+
+    // Логирование перед переходом
+    if constexpr (requires {
+                    static_cast<Derived*>(this)->onStateTransition(
+                        std::decay_t<decltype(currentState)>(), NewState{});
+                  }) {
+      static_cast<Derived*>(this)->onStateTransition(
+          std::decay_t<decltype(currentState)>(), NewState{});
+    }
+
+    // Переход в новое состояние
     currentState.template emplace<NewState>();
   }
+
   // Вызов handleEvent через CRTP
   template <typename FromState, typename EventType>
   void invokeHandleEvent() {

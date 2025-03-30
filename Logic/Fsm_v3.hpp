@@ -111,9 +111,12 @@ class Fsm_v3 {
 
   using Events = EventTuple;
 
- public:
+ private:
   constexpr Fsm_v3() : currentState(std::in_place_index<0>) {}
 
+  friend Derived;
+
+ public:
   template <typename State>
   constexpr void setState() noexcept {
     currentState = State{};

@@ -95,7 +95,7 @@ class Fsm_v4 {
                     }) {
         static_cast<Derived*>(this)->onEvent(EventType{});
       }
-      
+
       invokeHandleEvent<typename TransitionType::From, EventType>();
       setState<typename TransitionType::To>();
       return true;
@@ -113,15 +113,13 @@ class Fsm_v4 {
 
   void checkEvents() {
     [&]<typename... Ts>(Ts...) {
-      (static_cast<void>(
-           checkAndProcessEvent<typename Ts::From, typename Ts::Event>()),
-       ...);
+      (checkAndProcessEvent<typename Ts::From, typename Ts::Event>() || ...);
     }((Transitions{})...);
   }
 
  private:
   template <typename FromState, typename EventType>
-  void checkAndProcessEvent() {
+  bool checkAndProcessEvent() {
     if constexpr (requires {
                     static_cast<Derived*>(this)->checkEvent(FromState{},
                                                             EventType{});
@@ -132,12 +130,14 @@ class Fsm_v4 {
                       }) {
           static_cast<Derived*>(this)->onEvent(EventType{});
         }
-        
+
         invokeHandleEvent<FromState, EventType>();
         setState<typename FindTransition<FromState, EventType,
                                          Transitions...>::type::To>();
+        return true;
       }
     }
+    return false;
   }
 };
 }  // namespace m

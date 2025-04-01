@@ -19,6 +19,7 @@ class ILog {
   virtual ~ILog() {}
 
   virtual void add(std::string_view text) = 0;
+  virtual void clear() = 0;
 };
 }  // namespace m::ifc
 

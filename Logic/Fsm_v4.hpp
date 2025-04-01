@@ -118,7 +118,9 @@ class Fsm_v4 {
 
   void checkEvents() {
     [&]<typename... Ts>(Ts...) {
-      (checkAndProcessEvent<typename Ts::From, typename Ts::Event>() || ...);
+      ((std::holds_alternative<typename Ts::From>(currentState) &&
+        checkAndProcessEvent<typename Ts::From, typename Ts::Event>()) ||
+       ...);
     }((Transitions{})...);
   }
 

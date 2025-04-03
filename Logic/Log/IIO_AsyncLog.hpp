@@ -63,6 +63,7 @@ class IIO_AsyncLog : public m::ifc::ILog {
   void clear() override {
     write_index_ = 0;
     read_index_ = 0;
+    io_.abortWrite();
   }
 
  private:

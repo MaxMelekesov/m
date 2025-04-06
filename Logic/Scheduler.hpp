@@ -86,7 +86,7 @@ class Scheduler {
     }
   }
 
-  void switchCorutine() {
+  void switchCoroutine() {
     if (current_task_valid()) {
       auto& current = current_task();
       if (!current.coro.done()) {

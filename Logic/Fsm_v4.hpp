@@ -54,37 +54,6 @@ struct FindTransition<CurrentState, EventType> {
 template <typename Derived, typename StateVariant, typename EventVariant,
           typename InitialState, typename... Transitions>
 class Fsm_v4 {
- private:
-  StateVariant currentState;
-
-  template <typename NewState>
-  void setState() {
-    static_assert(std::is_base_of_v<State<NewState>, NewState>,
-                  "NewState must inherit from State<NewState>");
-
-    if constexpr (requires {
-                    static_cast<Derived*>(this)->onStateTransition(NewState{});
-                  }) {
-      static_cast<Derived*>(this)->onStateTransition(NewState{});
-    }
-
-    currentState.template emplace<NewState>();
-  }
-
-  template <typename FromState, typename EventType>
-  void invokeHandleEvent() {
-    if constexpr (requires {
-                    static_cast<Derived*>(this)->handleEvent(FromState{},
-                                                             EventType{});
-                  }) {
-      static_cast<Derived*>(this)->handleEvent(FromState{}, EventType{});
-    }
-  }
-
-  friend Derived;
-
-  Fsm_v4() { currentState.template emplace<InitialState>(); }
-
  public:
   template <typename EventType>
   bool processEvent(const EventType& event) {
@@ -125,6 +94,36 @@ class Fsm_v4 {
   }
 
  private:
+  StateVariant currentState;
+
+  friend Derived;
+
+  Fsm_v4() { currentState.template emplace<InitialState>(); }
+
+  template <typename NewState>
+  void setState() {
+    static_assert(std::is_base_of_v<State<NewState>, NewState>,
+                  "NewState must inherit from State<NewState>");
+
+    if constexpr (requires {
+                    static_cast<Derived*>(this)->onStateTransition(NewState{});
+                  }) {
+      static_cast<Derived*>(this)->onStateTransition(NewState{});
+    }
+
+    currentState.template emplace<NewState>();
+  }
+
+  template <typename FromState, typename EventType>
+  void invokeHandleEvent() {
+    if constexpr (requires {
+                    static_cast<Derived*>(this)->handleEvent(FromState{},
+                                                             EventType{});
+                  }) {
+      static_cast<Derived*>(this)->handleEvent(FromState{}, EventType{});
+    }
+  }
+
   template <typename FromState, typename EventType>
   bool checkAndProcessEvent() {
     if constexpr (requires {

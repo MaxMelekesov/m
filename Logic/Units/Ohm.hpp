@@ -75,7 +75,6 @@ class Ohm {
     return lhs.value_ / rhs.value_;
   }
 
- private:
   type value_;
 };
 

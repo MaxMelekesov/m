@@ -72,7 +72,6 @@ class Celsius {
   friend constexpr auto operator<=>(const Celsius& lhs,
                                     const Celsius& rhs) = default;
 
- private:
   type value_;
 };
 

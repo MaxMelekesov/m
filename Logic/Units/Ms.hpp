@@ -72,7 +72,6 @@ class Ms {
 
   friend constexpr auto operator<=>(const Ms& lhs, const Ms& rhs) = default;
 
- private:
   type value_;
 };
 

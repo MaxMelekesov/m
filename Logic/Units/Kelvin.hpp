@@ -72,7 +72,6 @@ class Kelvin {
   friend constexpr auto operator<=>(const Kelvin& lhs,
                                     const Kelvin& rhs) = default;
 
- private:
   type value_;
 };
 

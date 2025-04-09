@@ -11,8 +11,6 @@
 #ifndef SETTINGS_HPP
 #define SETTINGS_HPP
 
-#include <array>
-#include <iostream>
 #include <tuple>
 #include <type_traits>
 

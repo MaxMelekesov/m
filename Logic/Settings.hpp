@@ -13,117 +13,84 @@
 
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace m {
 
-// Базовый класс для концепции тега
+// Базовый класс для тегов
 struct TagBase {};
 
-// CRTP реализация для TagValue
+// Концепт для проверки, что тип является тегом
+template <typename T>
+concept Tag = std::is_base_of_v<TagBase, T>;
+
+// Класс для определения тега настройки с типом значения и значением по умолчанию
 template <typename Derived, typename Type, Type DefaultValue>
 struct TagValue : public TagBase {
-  using TagType = Derived;
   using ValueType = Type;
   static constexpr Type defaultValue = DefaultValue;
-
-  // Гарантируем, что Derived наследуется от TagValue
-  constexpr TagValue() {
-    static_assert(std::is_base_of_v<TagValue, Derived>,
-                  "Tag must inherit from TagValue");
-  }
 };
 
-// Вспомогательная проверка для TagValue
-template <typename T> struct IsTagValue : std::false_type {};
+// Хранилище значений настроек
+template <typename Derived, typename... Tags>
+class Settings {
+ private:
+  std::tuple<typename Tags::ValueType...> values_ =
+      std::make_tuple(Tags::defaultValue...);
+  bool has_changes_ = false;  // Флаг для отслеживания изменений
 
-template <typename Derived, typename Type, Type DefaultValue>
-struct IsTagValue<TagValue<Derived, Type, DefaultValue>> : std::true_type {};
-
-template <typename T>
-inline constexpr bool is_tag_value_v = IsTagValue<T>::value;
-
-// Специализация ValueStorage теперь для конкретных типов тегов
-template <typename... Tags> struct ValueStorage {
-  std::tuple<typename Tags::ValueType...> values = {Tags::defaultValue...};
-};
-
-template <typename Derived, typename... Tags> class Settings {
-protected:
-  using ValueStorageType = ValueStorage<Tags...>;
-
-private:
-  ValueStorageType storage;
-  bool has_changes_ = false;
-
-public:
-  template <typename Tag, typename ValueType> void setValue(ValueType &&value) {
-    static_assert(std::is_base_of_v<TagBase, Tag>,
-                  "Tag must be derived from TagBase");
-    static_assert(tagExists<Tag>(), "Tag not found in settings pairs");
-
-    constexpr size_t index = getIndex<Tag>();
-    using ActualValueType =
-        std::tuple_element_t<index, decltype(storage.values)>;
-
-    static_assert(std::is_convertible_v<ValueType, ActualValueType>,
-                  "Incompatible value type for this setting");
-
-    auto &currentValue = std::get<index>(storage.values);
-    if (currentValue != value) {
-      currentValue = std::forward<ValueType>(value);
-      has_changes_ = true;
+ public:
+  // Установить значение по тегу
+  template <Tag TagType, typename Value>
+  void setValue(Value&& value) {
+    constexpr std::size_t index = getIndex<TagType>();
+    auto& current_value = std::get<index>(values_);
+    if (current_value != value) {  // Проверяем, изменилось ли значение
+      current_value = std::forward<Value>(value);
+      has_changes_ = true;  // Устанавливаем флаг изменений
     }
   }
 
-  template <typename Tag> typename Tag::ValueType getValue() const {
-    static_assert(tagExists<Tag>(), "Tag not found in settings pairs");
-
-    constexpr size_t index = getIndex<Tag>();
-    return std::get<index>(storage.values);
+  // Проверить, есть ли изменения
+  bool hasChanges() const {
+    return has_changes_;
   }
 
-  template <typename Tag, typename ValueType>
-  bool hasValue(const ValueType &value) const {
-    static_assert(tagExists<Tag>(), "Tag not found in settings pairs");
-    return getValue<Tag>() == value;
-  }
-
+  // Сохранить настройки
   bool save() {
-    if (static_cast<Derived *>(this)->saveImpl(storage)) {
-      has_changes_ = false;
-      return true;
+    return static_cast<Derived*>(this)->saveImpl(values_);
+  }
+
+  // Загрузить настройки
+  bool load() {
+    return static_cast<Derived*>(this)->loadImpl(values_);
+  }
+
+  // Получить значение по тегу
+  template <Tag TagType>
+  const auto& getValue() const {
+    constexpr std::size_t index = getIndex<TagType>();
+    return std::get<index>(values_);
+  }
+
+  // Сбросить все значения к значениям по умолчанию
+  void resetToDefaults() {
+    values_ = std::make_tuple(Tags::defaultValue...);
+    has_changes_ = true;  // Устанавливаем флаг изменений
+  }
+
+ private:
+  // Получить индекс тега в tuple
+  template <typename TagType, std::size_t Index = 0>
+  static constexpr std::size_t getIndex() {
+    if constexpr (std::is_same_v<std::tuple_element_t<Index, std::tuple<Tags...>>, TagType>) {
+      return Index;
     } else {
-      return false;
+      return getIndex<TagType, Index + 1>();
     }
-  }
-
-  bool load() { return static_cast<Derived *>(this)->loadImpl(storage); }
-
-  bool hasChanges() const { return has_changes_; }
-
-private:
-  template <typename Tag> static constexpr bool tagExists() {
-    return (std::is_same_v<Tags, Tag> || ...);
-  }
-
-  template <typename Tag> static constexpr size_t getIndex() {
-    return getIndexImpl<Tag, 0, Tags...>();
-  }
-
-  template <typename Tag, size_t Idx, typename CurrentTag, typename... Rest>
-  static constexpr size_t getIndexImpl() {
-    if constexpr (std::is_same_v<CurrentTag, Tag>) {
-      return Idx;
-    } else {
-      return getIndexImpl<Tag, Idx + 1, Rest...>();
-    }
-  }
-
-  template <typename Tag, size_t Idx> static constexpr size_t getIndexImpl() {
-    static_assert(sizeof...(Tags) > 0, "Tag not found in settings pairs");
-    return Idx;
   }
 };
-} // namespace m
 
-#endif // SETTINGS_HPP
+}  // namespace m
+
+#endif  // SETTINGS_HPP

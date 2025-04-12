@@ -7,88 +7,113 @@
  *
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
-
 #ifndef SETTINGS_HPP
 #define SETTINGS_HPP
 
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
 namespace m {
 
-// Базовый класс для тегов
-struct TagBase {};
+struct SettingsTagBase {};
 
-// Концепт для проверки, что тип является тегом
 template <typename T>
-concept Tag = std::is_base_of_v<TagBase, T>;
+concept CSettingTag = std::is_base_of_v<SettingsTagBase, T>;
 
-// Класс для определения тега настройки с типом значения и значением по умолчанию
 template <typename Derived, typename Type, Type DefaultValue>
-struct TagValue : public TagBase {
+struct SettingTag : public SettingsTagBase {
   using ValueType = Type;
   static constexpr Type defaultValue = DefaultValue;
 };
 
-// Хранилище значений настроек
-template <typename Derived, typename... Tags>
-class Settings {
- private:
-  std::tuple<typename Tags::ValueType...> values_ =
-      std::make_tuple(Tags::defaultValue...);
-  bool has_changes_ = false;  // Флаг для отслеживания изменений
+template <typename... SettingsTags>
+struct SettingsStorage;
 
- public:
-  // Установить значение по тегу
-  template <Tag TagType, typename Value>
-  void setValue(Value&& value) {
-    constexpr std::size_t index = getIndex<TagType>();
-    auto& current_value = std::get<index>(values_);
-    if (current_value != value) {  // Проверяем, изменилось ли значение
-      current_value = std::forward<Value>(value);
-      has_changes_ = true;  // Устанавливаем флаг изменений
-    }
-  }
+template <typename FirstTag, typename... RestTags>
+struct SettingsStorage<FirstTag, RestTags...> {
+  typename FirstTag::ValueType value;
+  SettingsStorage<RestTags...> rest;
 
-  // Проверить, есть ли изменения
-  bool hasChanges() const {
-    return has_changes_;
-  }
+  constexpr SettingsStorage() : value(FirstTag::defaultValue), rest() {}
 
-  // Сохранить настройки
-  bool save() {
-    return static_cast<Derived*>(this)->saveImpl(values_);
-  }
-
-  // Загрузить настройки
-  bool load() {
-    return static_cast<Derived*>(this)->loadImpl(values_);
-  }
-
-  // Получить значение по тегу
-  template <Tag TagType>
-  const auto& getValue() const {
-    constexpr std::size_t index = getIndex<TagType>();
-    return std::get<index>(values_);
-  }
-
-  // Сбросить все значения к значениям по умолчанию
-  void resetToDefaults() {
-    values_ = std::make_tuple(Tags::defaultValue...);
-    has_changes_ = true;  // Устанавливаем флаг изменений
-  }
-
- private:
-  // Получить индекс тега в tuple
-  template <typename TagType, std::size_t Index = 0>
-  static constexpr std::size_t getIndex() {
-    if constexpr (std::is_same_v<std::tuple_element_t<Index, std::tuple<Tags...>>, TagType>) {
-      return Index;
+  template <CSettingTag Tag, typename Value>
+  void setValue(Value &&newValue) {
+    if constexpr (std::is_same_v<Tag, FirstTag>) {
+      value = std::forward<Value>(newValue);
     } else {
-      return getIndex<TagType, Index + 1>();
+      rest.template setValue<Tag>(std::forward<Value>(newValue));
     }
   }
+
+  template <CSettingTag Tag>
+  auto getValue() const {
+    if constexpr (std::is_same_v<Tag, FirstTag>) {
+      return value;
+    } else {
+      return rest.template getValue<Tag>();
+    }
+  }
+};
+
+template <typename LastTag>
+struct SettingsStorage<LastTag> {
+  typename LastTag::ValueType value;
+
+  constexpr SettingsStorage() : value(LastTag::defaultValue) {}
+
+  template <CSettingTag Tag, typename Value>
+  void setValue(Value &&newValue) {
+    if constexpr (std::is_same_v<Tag, LastTag>) {
+      value = std::forward<Value>(newValue);
+    }
+  }
+
+  template <CSettingTag Tag>
+  auto getValue() const {
+    if constexpr (std::is_same_v<Tag, LastTag>) {
+      return value;
+    }
+  }
+};
+
+template <typename Derived, typename... SettingsTags>
+class Settings {
+ public:
+  using StorageType = SettingsStorage<SettingsTags...>;
+
+  template <CSettingTag TagType, typename Value>
+  void setValue(Value &&value) {
+    if (storage_.template getValue<TagType>() != value) {
+      storage_.template setValue<TagType>(std::forward<Value>(value));
+      has_changes_ = true;
+    }
+  }
+
+  template <CSettingTag TagType>
+  const auto getValue() const {
+    return storage_.template getValue<TagType>();
+  }
+
+  bool hasChanges() const { return has_changes_; }
+
+  bool save() {
+    if (static_cast<Derived *>(this)->saveImpl(storage_)) {
+      has_changes_ = false;
+      return true;
+    }
+    return false;
+  }
+
+  bool load() { return static_cast<Derived *>(this)->loadImpl(storage_); }
+
+  void resetToDefaults() {
+    storage_ = StorageType{};
+    has_changes_ = true;
+  }
+
+ private:
+  StorageType storage_;
+  bool has_changes_ = false;
 };
 
 }  // namespace m

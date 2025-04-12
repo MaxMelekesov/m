@@ -10,101 +10,92 @@
 #ifndef SETTINGS_HPP
 #define SETTINGS_HPP
 
-#include <type_traits>
-#include <utility>
+#include <TaggedStorage.hpp>
 
 namespace m {
 
-struct SettingsTagBase {};
-
-template <typename T>
-concept CSettingTag = std::is_base_of_v<SettingsTagBase, T>;
-
-template <typename Derived, typename Type, Type DefaultValue>
-struct SettingTag : public SettingsTagBase {
-  using ValueType = Type;
-  static constexpr Type defaultValue = DefaultValue;
-};
-
-template <typename... SettingsTags>
-struct SettingsStorage;
-
-template <typename FirstTag, typename... RestTags>
-struct SettingsStorage<FirstTag, RestTags...> {
-  typename FirstTag::ValueType value;
-  SettingsStorage<RestTags...> rest;
-
-  constexpr SettingsStorage() : value(FirstTag::defaultValue), rest() {}
-
-  template <CSettingTag Tag, typename Value>
-  void setValue(Value &&newValue) {
-    if constexpr (std::is_same_v<Tag, FirstTag>) {
-      value = std::forward<Value>(newValue);
-    } else {
-      rest.template setValue<Tag>(std::forward<Value>(newValue));
-    }
-  }
-
-  template <CSettingTag Tag>
-  auto getValue() const {
-    if constexpr (std::is_same_v<Tag, FirstTag>) {
-      return value;
-    } else {
-      return rest.template getValue<Tag>();
-    }
-  }
-};
-
-template <typename LastTag>
-struct SettingsStorage<LastTag> {
-  typename LastTag::ValueType value;
-
-  constexpr SettingsStorage() : value(LastTag::defaultValue) {}
-
-  template <CSettingTag Tag, typename Value>
-  void setValue(Value &&newValue) {
-    if constexpr (std::is_same_v<Tag, LastTag>) {
-      value = std::forward<Value>(newValue);
-    }
-  }
-
-  template <CSettingTag Tag>
-  auto getValue() const {
-    if constexpr (std::is_same_v<Tag, LastTag>) {
-      return value;
-    }
-  }
-};
-
+/**
+ * @brief A template class for managing application settings with persistence
+ *
+ * The Settings class provides a type-safe interface for accessing and modifying
+ * configuration values, with built-in change tracking and persistence support.
+ * It uses the CRTP pattern (Curiously Recurring Template Pattern) to allow
+ * derived classes to implement persistence mechanisms while reusing common
+ * settings management logic.
+ *
+ * Key features:
+ * - Type-safe access to settings via tag types
+ * - Change tracking to optimize persistence operations
+ * - Serializable storage with sequential memory layout
+ * - Customizable persistence through derived classes
+ *
+ * @tparam Derived    The derived class that implements persistence methods
+ * @tparam SettingsTags  The tag types that define available settings
+ *
+ * Example usage:
+ *
+ *     // Define tag types
+ *     struct TemperatureTag : public Tag<int, 25> {};
+ *     struct EnabledTag : public Tag<bool, false> {};
+ *
+ *     // Define settings manager with persistence
+ *     class DeviceSettings : public Settings<DeviceSettings, TemperatureTag, EnabledTag> {
+ *     private:
+ *         Flash& flash_;
+ *
+ *         // Implement required persistence methods
+ *         bool saveImpl(StorageType& storage) {
+ *             return flash_.write(0, &storage, sizeof(storage));
+ *         }
+ *
+ *         bool loadImpl(StorageType& storage) {
+ *             return flash_.read(0, &storage, sizeof(storage));
+ *         }
+ *
+ *         // Friend declaration needed for CRTP
+ *         friend Settings;
+ *     };
+ *
+ *     // Usage example
+ *     DeviceSettings settings(flash);
+ *     settings.setValue<TemperatureTag>(30);
+ *     settings.setValue<EnabledTag>(true);
+ *     if(settings.hasChanges()) {
+ *         settings.save();
+ *     }
+ *
+ *     int temp = settings.getValue<TemperatureTag>(); // temp = 30
+ *     bool enabled = settings.getValue<EnabledTag>(); // enabled = true
+ */
 template <typename Derived, typename... SettingsTags>
 class Settings {
  public:
-  using StorageType = SettingsStorage<SettingsTags...>;
+  using StorageType = TaggedStorage<SettingsTags...>;
 
-  template <CSettingTag TagType, typename Value>
-  void setValue(Value &&value) {
-    if (storage_.template getValue<TagType>() != value) {
-      storage_.template setValue<TagType>(std::forward<Value>(value));
+  template <m::CTag TagType>
+  void setValue(const typename TagType::ValueType& value) {
+    if (storage_.template get<TagType>() != value) {
+      storage_.template set<TagType>(value);
       has_changes_ = true;
     }
   }
 
-  template <CSettingTag TagType>
-  const auto getValue() const {
-    return storage_.template getValue<TagType>();
+  template <m::CTag TagType>
+  auto getValue() const {
+    return storage_.template get<TagType>();
   }
 
   bool hasChanges() const { return has_changes_; }
 
   bool save() {
-    if (static_cast<Derived *>(this)->saveImpl(storage_)) {
+    if (static_cast<Derived*>(this)->saveImpl(storage_)) {
       has_changes_ = false;
       return true;
     }
     return false;
   }
 
-  bool load() { return static_cast<Derived *>(this)->loadImpl(storage_); }
+  bool load() { return static_cast<Derived*>(this)->loadImpl(storage_); }
 
   void resetToDefaults() {
     storage_ = StorageType{};

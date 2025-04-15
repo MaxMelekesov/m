@@ -39,9 +39,8 @@ namespace m {
  *     struct EnabledTag : public Tag<bool, false> {};
  *
  *     // Define settings manager with persistence
- *     class DeviceSettings : public Settings<DeviceSettings, TemperatureTag, EnabledTag> {
- *     private:
- *         Flash& flash_;
+ *     class DeviceSettings : public Settings<DeviceSettings, TemperatureTag,
+ * EnabledTag> { private: Flash& flash_;
  *
  *         // Implement required persistence methods
  *         bool saveImpl(StorageType& storage) {
@@ -77,6 +76,7 @@ class Settings {
     if (storage_.template get<TagType>() != value) {
       storage_.template set<TagType>(value);
       has_changes_ = true;
+      return static_cast<Derived*>(this)->newChangeImpl();
     }
   }
 

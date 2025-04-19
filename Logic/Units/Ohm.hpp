@@ -11,9 +11,10 @@
 #ifndef OHM_H
 #define OHM_H
 
-#include <cstdint>
+#include <type_traits>
 
 template <typename T>
+  requires std::is_arithmetic_v<T>
 class Ohm {
  public:
   using type = T;

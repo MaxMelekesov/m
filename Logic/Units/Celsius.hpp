@@ -11,9 +11,10 @@
 #ifndef CELSIUS_H
 #define CELSIUS_H
 
-#include <cstdint>
+#include <type_traits>
 
 template <typename T>
+  requires std::is_arithmetic_v<T>
 class Celsius {
  public:
   using type = T;

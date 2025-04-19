@@ -11,9 +11,10 @@
 #ifndef KELVIN_H
 #define KELVIN_H
 
-#include <cstdint>
+#include <type_traits>
 
 template <typename T>
+  requires std::is_arithmetic_v<T>
 class Kelvin {
  public:
   using type = T;

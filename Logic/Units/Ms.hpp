@@ -11,6 +11,7 @@
 #ifndef MS_H
 #define MS_H
 
+#include <concepts>
 #include <type_traits>
 
 template <typename T>

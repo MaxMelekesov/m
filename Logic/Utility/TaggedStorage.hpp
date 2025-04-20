@@ -41,6 +41,11 @@ struct Tag : public TagBase {
   static constexpr Type default_value = DefaultValue;
 };
 
+namespace {
+template <typename Tag, typename... Tags>
+struct has_tag : std::disjunction<std::is_same<Tag, Tags>...> {};
+}  // namespace
+
 /**
  * @brief A compile-time container for storing and retrieving values by their
  * tag types
@@ -113,6 +118,8 @@ struct TaggedStorage<FirstTag, RestTags...> {
 
   template <typename Tag>
   auto get() {
+    static_assert(has_tag<Tag, FirstTag, RestTags...>::value,
+                  "Tag not found in TaggedStorage");
     if constexpr (std::is_same_v<Tag, FirstTag>) {
       return value;
     } else {
@@ -122,6 +129,8 @@ struct TaggedStorage<FirstTag, RestTags...> {
 
   template <typename Tag>
   auto get() const {
+    static_assert(has_tag<Tag, FirstTag, RestTags...>::value,
+                  "Tag not found in TaggedStorage");
     if constexpr (std::is_same_v<Tag, FirstTag>) {
       return value;
     } else {
@@ -131,6 +140,8 @@ struct TaggedStorage<FirstTag, RestTags...> {
 
   template <typename Tag, typename Value>
   void set(Value&& new_walue) {
+    static_assert(has_tag<Tag, FirstTag, RestTags...>::value,
+                  "Tag not found in TaggedStorage");
     if constexpr (std::is_same_v<Tag, FirstTag>) {
       value = std::forward<Value>(new_walue);
     } else {
@@ -150,16 +161,22 @@ struct TaggedStorage<LastTag> {
 
   template <typename Tag>
   auto get() {
+    static_assert(std::is_same_v<Tag, LastTag>,
+                  "Tag not found in TaggedStorage");
     return value;
   }
 
   template <typename Tag>
   auto get() const {
+    static_assert(std::is_same_v<Tag, LastTag>,
+                  "Tag not found in TaggedStorage");
     return value;
   }
 
   template <typename Tag, typename Value>
   void set(Value&& new_walue) {
+    static_assert(std::is_same_v<Tag, LastTag>,
+                  "Tag not found in TaggedStorage");
     value = std::forward<Value>(new_walue);
   }
 };

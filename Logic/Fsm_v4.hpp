@@ -28,7 +28,7 @@ struct Transition {
   using Event = EventType;
   using To = ToState;
 };
-
+namespace {
 template <typename TransitionType, typename CurrentState, typename EventType>
 concept IsMatch = std::is_same_v<typename TransitionType::From, CurrentState> &&
                   std::is_same_v<typename TransitionType::Event, EventType>;
@@ -48,6 +48,7 @@ template <typename CurrentState, typename EventType>
 struct FindTransition<CurrentState, EventType> {
   using type = void;
 };
+}
 
 template <typename Derived, typename StateVariant, typename EventVariant,
           typename InitialState, typename... Transitions>

@@ -15,25 +15,27 @@
 #include <ITime.hpp>
 #include <Ms.hpp>
 #include <Timer.hpp>
-#include <array>
+#include <bit>
+#include <bitset>
 #include <cstdint>
 
 namespace m {
 
-template <typename TimeUnit, std::size_t MaxErrorCode>
+template <typename TimeUnit, uint32_t MaxErrorCode>
 class ErrorLedIndicator {
  public:
   ErrorLedIndicator(ifc::mcu::IPin& led, ifc::ITime<Ms<TimeUnit>>& time,
-                    Ms<TimeUnit> Long_Flash, Ms<TimeUnit> Short_Flash,
-                    Ms<TimeUnit> Pause_Between_Flashes,
-                    Ms<TimeUnit> Pause_Between_Sequences)
+                    Ms<TimeUnit> long_flash = Ms<TimeUnit>{1000},
+                    Ms<TimeUnit> short_flash = Ms<TimeUnit>{200},
+                    Ms<TimeUnit> pause_between_flashes = Ms<TimeUnit>{1000},
+                    Ms<TimeUnit> pause_between_sequences = Ms<TimeUnit>{5000})
       : led_(led),
         time_(time),
         timer_(time),
-        Long_Flash_Ms(Long_Flash),
-        Short_Flash_Ms(Short_Flash),
-        Pause_Between_Flashes_Ms(Pause_Between_Flashes),
-        Pause_Between_Sequences_Ms(Pause_Between_Sequences) {}
+        Long_Flash(long_flash),
+        Short_Flash(short_flash),
+        Pause_Between_Flashes(pause_between_flashes),
+        Pause_Between_Sequences(pause_between_sequences) {}
 
   void setError(uint32_t errorCode) {
     if (errorCode > MaxErrorCode) {
@@ -55,7 +57,7 @@ class ErrorLedIndicator {
 
     switch (state_) {
       case State::Idle: {
-        if (timer_.restart(Pause_Between_Sequences_Ms)) {
+        if (timer_.restart(Pause_Between_Sequences)) {
           state_ = State::WaitingBetweenSequences;
         }
         break;
@@ -65,15 +67,15 @@ class ErrorLedIndicator {
           currentFlashIndex_ = 0;
           state_ = State::FlashOn;
           led_.write(true);
-          timer_.restart(flashSequence_[currentFlashIndex_] ? Long_Flash_Ms
-                                                            : Short_Flash_Ms);
+          timer_.restart(isLongFlash(currentFlashIndex_) ? Long_Flash
+                                                         : Short_Flash);
         }
         break;
       }
       case State::FlashOn: {
         if (timer_.timeOver()) {
           led_.write(false);
-          timer_.restart(Ms<uint32_t>{Pause_Between_Flashes_Ms});
+          timer_.restart(Pause_Between_Flashes);
           state_ = State::FlashOff;
         }
         break;
@@ -85,8 +87,8 @@ class ErrorLedIndicator {
             state_ = State::Idle;
           } else {
             led_.write(true);
-            timer_.restart(flashSequence_[currentFlashIndex_] ? Long_Flash_Ms
-                                                              : Short_Flash_Ms);
+            timer_.restart(isLongFlash(currentFlashIndex_) ? Long_Flash
+                                                           : Short_Flash);
             state_ = State::FlashOn;
           }
         }
@@ -96,33 +98,30 @@ class ErrorLedIndicator {
   }
 
  private:
-  m::ifc::mcu::IPin& led_;
-  m::ifc::ITime<Ms<TimeUnit>>& time_;
-  m::Timer<Ms<TimeUnit>> timer_;
-  const Ms<TimeUnit> Long_Flash_Ms;
-  const Ms<TimeUnit> Short_Flash_Ms;
-  const Ms<TimeUnit> Pause_Between_Flashes_Ms;
-  const Ms<TimeUnit> Pause_Between_Sequences_Ms;
+  ifc::mcu::IPin& led_;
+  ifc::ITime<Ms<TimeUnit>>& time_;
+  Timer<Ms<TimeUnit>> timer_;
+
+  bool hasError_ = false;
+  uint32_t errorCode_ = 0;
 
   static constexpr std::size_t bitsNeeded(uint32_t value) {
-    std::size_t bits = 1;
-    while (value > 1) {
-      value >>= 1;
-      bits++;
-    }
-    return bits;
+    return std::bit_width(value) > 0 ? std::bit_width(value) : 1;
   }
-
   static constexpr std::size_t Max_Flash_Sequence_Size =
       bitsNeeded(MaxErrorCode);
 
-  std::array<bool, Max_Flash_Sequence_Size> flashSequence_;
+  std::bitset<Max_Flash_Sequence_Size> flashSequence_;
   std::size_t flashSequenceSize_ = 0;
   std::size_t currentFlashIndex_ = 0;
 
   enum class State { Idle, WaitingBetweenSequences, FlashOn, FlashOff };
-
   State state_ = State::Idle;
+
+  const Ms<TimeUnit> Long_Flash;
+  const Ms<TimeUnit> Short_Flash;
+  const Ms<TimeUnit> Pause_Between_Flashes;
+  const Ms<TimeUnit> Pause_Between_Sequences;
 
   void resetState() {
     hasError_ = true;
@@ -131,30 +130,28 @@ class ErrorLedIndicator {
     led_.write(false);
   }
 
+  [[nodiscard]] constexpr bool isLongFlash(size_t index) const {
+    if (index < flashSequenceSize_) {
+      return flashSequence_[index];
+    }
+    return false;
+  }
+
   void generateFlashSequence() {
-    flashSequenceSize_ = 0;
+    flashSequence_.reset();
 
     if (errorCode_ == 0) {
-      flashSequence_[0] = false;
       flashSequenceSize_ = 1;
       return;
     }
+    flashSequenceSize_ = std::bit_width(errorCode_);
 
-    uint32_t tempCode = errorCode_;
-    uint32_t bitCount = 0;
-    while (tempCode > 0) {
-      tempCode >>= 1;
-      bitCount++;
-    }
-
-    flashSequenceSize_ = bitCount;
-    for (uint32_t i = 0; i < bitCount; ++i) {
-      flashSequence_[bitCount - i - 1] = ((errorCode_ >> i) & 1) != 0;
+    for (uint32_t i = 0; i < flashSequenceSize_; ++i) {
+      if ((errorCode_ & (1u << i)) != 0) {
+        flashSequence_.set(flashSequenceSize_ - i - 1);
+      }
     }
   }
-
-  bool hasError_ = false;
-  uint32_t errorCode_ = 0;
 };
 
 }  // namespace m

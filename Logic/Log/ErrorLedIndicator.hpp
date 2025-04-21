@@ -47,6 +47,8 @@ class ErrorLedIndicator {
     resetState();
   }
 
+  bool hasError() const { return hasError_; }
+
   void clearError() {
     hasError_ = false;
     led_.write(false);

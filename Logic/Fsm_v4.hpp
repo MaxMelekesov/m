@@ -11,6 +11,7 @@
 #ifndef FSM_V4_H
 #define FSM_V4_H
 
+#include <concepts>
 #include <type_traits>
 #include <variant>
 
@@ -48,10 +49,39 @@ template <typename CurrentState, typename EventType>
 struct FindTransition<CurrentState, EventType> {
   using type = void;
 };
-}
+}  // namespace
 
-template <typename Derived, typename StateVariant, typename EventVariant,
-          typename InitialState, typename... Transitions>
+template <typename T>
+concept StateVariantConcept = requires {
+  typename std::remove_reference_t<T>;
+  requires[]<typename... States>(std::variant<States...>*) {
+    static_assert(
+        (std::conjunction_v<std::is_base_of<m::State<States>, States>...>),
+        "All types in StateVariant must inherit from m::State<T>. "
+        "Check your StateVariant definition: at least one type does not "
+        "inherit from m::State<T>.");
+    return true;
+  }
+  (static_cast<std::remove_reference_t<T>*>(nullptr));
+};
+
+template <typename T>
+concept EventVariantConcept = requires {
+  typename std::remove_reference_t<T>;
+  requires[]<typename... Events>(std::variant<Events...>*) {
+    static_assert(
+        (std::conjunction_v<std::is_base_of<m::Event<Events>, Events>...>),
+        "All types in EventVariant must inherit from m::Event<T>. "
+        "Check your EventVariant definition: at least one type does not "
+        "inherit from m::Event<T>.");
+    return true;
+  }
+  (static_cast<std::remove_reference_t<T>*>(nullptr));
+};
+
+template <typename Derived, StateVariantConcept StateVariant,
+          EventVariantConcept EventVariant, typename InitialState,
+          typename... Transitions>
 class Fsm_v4 {
  public:
   template <typename EventType>

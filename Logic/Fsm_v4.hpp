@@ -52,7 +52,7 @@ struct FindTransition<CurrentState, EventType> {
 }  // namespace
 
 template <typename T>
-concept StateVariantConcept = requires {
+concept CStateVariant = requires {
   typename std::remove_reference_t<T>;
   requires[]<typename... States>(std::variant<States...>*) {
     static_assert(
@@ -66,7 +66,7 @@ concept StateVariantConcept = requires {
 };
 
 template <typename T>
-concept EventVariantConcept = requires {
+concept CEventVariant = requires {
   typename std::remove_reference_t<T>;
   requires[]<typename... Events>(std::variant<Events...>*) {
     static_assert(
@@ -79,9 +79,22 @@ concept EventVariantConcept = requires {
   (static_cast<std::remove_reference_t<T>*>(nullptr));
 };
 
-template <typename Derived, StateVariantConcept StateVariant,
-          EventVariantConcept EventVariant, typename InitialState,
-          typename... Transitions>
+template <typename T>
+concept CInitialState = std::is_base_of_v<m::State<T>, T>;
+
+template <typename T>
+concept CTransition =
+    requires {
+      typename T::From;
+      typename T::Event;
+      typename T::To;
+    } &&
+    std::same_as<
+        T, m::Transition<typename T::From, typename T::Event, typename T::To>>;
+
+template <typename Derived, CStateVariant StateVariant,
+          CEventVariant EventVariant, CInitialState InitialState,
+          CTransition... Transitions>
 class Fsm_v4 {
  public:
   template <typename EventType>

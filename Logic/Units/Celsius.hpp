@@ -11,7 +11,7 @@
 #ifndef CELSIUS_H
 #define CELSIUS_H
 
-#include <concepts>
+#include <compare>
 #include <type_traits>
 
 template <typename T>

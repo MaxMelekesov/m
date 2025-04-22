@@ -11,7 +11,7 @@
 #ifndef OHM_H
 #define OHM_H
 
-#include <concepts>
+#include <compare>
 #include <type_traits>
 
 template <typename T>

@@ -66,23 +66,25 @@ namespace m {
  *     int temp = settings.getValue<TemperatureTag>(); // temp = 30
  *     bool enabled = settings.getValue<EnabledTag>(); // enabled = true
  */
-template <typename Derived, typename... SettingsTags>
+template <typename Derived, CTag... SettingsTags>
 class Settings {
  public:
   using StorageType = TaggedStorage<SettingsTags...>;
 
-  template <m::CTag TagType>
-  void setValue(const typename TagType::ValueType& value) {
-    if (storage_.template get<TagType>() != value) {
-      storage_.template set<TagType>(value);
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, SettingsTags...>
+  void setValue(const typename Tag::ValueType& value) {
+    if (storage_.template get<Tag>() != value) {
+      storage_.template set<Tag>(value);
       has_changes_ = true;
       return static_cast<Derived*>(this)->newChangeImpl();
     }
   }
 
-  template <m::CTag TagType>
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, SettingsTags...>
   auto getValue() const {
-    return storage_.template get<TagType>();
+    return storage_.template get<Tag>();
   }
 
   bool hasChanges() const { return has_changes_; }

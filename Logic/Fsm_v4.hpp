@@ -17,22 +17,71 @@
 
 namespace m {
 
-template <typename Derived>
 struct State {};
-
-template <typename Derived>
 struct Event {};
 
-template <typename FromState, typename EventType, typename ToState>
+template <typename T>
+concept CState = std::is_base_of_v<State, T>;
+
+template <typename T>
+concept CEvent = std::is_base_of_v<Event, T>;
+
+template <CState FromState, CEvent EventType, CState ToState>
 struct Transition {
   using From = FromState;
   using Event = EventType;
   using To = ToState;
 };
+
+template <typename T>
+concept CTransition =
+    requires {
+      typename T::From;
+      typename T::Event;
+      typename T::To;
+    } && CState<typename T::From> && CEvent<typename T::Event> &&
+    CState<typename T::To>;
+
 namespace {
-template <typename TransitionType, typename CurrentState, typename EventType>
-concept IsMatch = std::is_same_v<typename TransitionType::From, CurrentState> &&
-                  std::is_same_v<typename TransitionType::Event, EventType>;
+template <typename... Ts>
+struct collect_types;
+
+template <>
+struct collect_types<> {
+  using states = std::tuple<>;
+  using events = std::tuple<>;
+};
+
+template <typename First, typename... Rest>
+struct collect_types<First, Rest...> {
+ private:
+  using rest_states = typename collect_types<Rest...>::states;
+  using rest_events = typename collect_types<Rest...>::events;
+
+  template <typename T, typename Tuple>
+  struct add_unique;
+
+  template <typename T, typename... Ts>
+  struct add_unique<T, std::tuple<Ts...>> {
+    using type = std::conditional_t<(std::is_same_v<T, Ts> || ...),
+                                    std::tuple<Ts...>, std::tuple<T, Ts...>>;
+  };
+
+ public:
+  using states = typename add_unique<
+      typename First::From,
+      typename add_unique<typename First::To, rest_states>::type>::type;
+
+  using events = typename add_unique<typename First::Event, rest_events>::type;
+};
+
+template <typename Tuple>
+struct tuple_to_variant;
+
+template <typename... Ts>
+struct tuple_to_variant<std::tuple<Ts...>> {
+  using type = std::variant<Ts...>;
+};
 
 template <typename CurrentState, typename EventType, typename... Transitions>
 struct FindTransition;
@@ -41,63 +90,29 @@ template <typename CurrentState, typename EventType, typename First,
           typename... Rest>
 struct FindTransition<CurrentState, EventType, First, Rest...> {
   using type = std::conditional_t<
-      IsMatch<First, CurrentState, EventType>, First,
-      typename FindTransition<CurrentState, EventType, Rest...>::type>;
+      std::is_same_v<typename First::From, CurrentState> &&
+          std::is_same_v<typename First::Event, EventType>,
+      First, typename FindTransition<CurrentState, EventType, Rest...>::type>;
 };
 
 template <typename CurrentState, typename EventType>
 struct FindTransition<CurrentState, EventType> {
   using type = void;
 };
+
 }  // namespace
 
-template <typename T>
-concept CStateVariant = requires {
-  typename std::remove_reference_t<T>;
-  requires[]<typename... States>(std::variant<States...>*) {
-    static_assert(
-        (std::conjunction_v<std::is_base_of<m::State<States>, States>...>),
-        "All types in StateVariant must inherit from m::State<T>. "
-        "Check your StateVariant definition: at least one type does not "
-        "inherit from m::State<T>.");
-    return true;
-  }
-  (static_cast<std::remove_reference_t<T>*>(nullptr));
-};
-
-template <typename T>
-concept CEventVariant = requires {
-  typename std::remove_reference_t<T>;
-  requires[]<typename... Events>(std::variant<Events...>*) {
-    static_assert(
-        (std::conjunction_v<std::is_base_of<m::Event<Events>, Events>...>),
-        "All types in EventVariant must inherit from m::Event<T>. "
-        "Check your EventVariant definition: at least one type does not "
-        "inherit from m::Event<T>.");
-    return true;
-  }
-  (static_cast<std::remove_reference_t<T>*>(nullptr));
-};
-
-template <typename T>
-concept CInitialState = std::is_base_of_v<m::State<T>, T>;
-
-template <typename T>
-concept CTransition =
-    requires {
-      typename T::From;
-      typename T::Event;
-      typename T::To;
-    } &&
-    std::same_as<
-        T, m::Transition<typename T::From, typename T::Event, typename T::To>>;
-
-template <typename Derived, CStateVariant StateVariant,
-          CEventVariant EventVariant, CInitialState InitialState,
-          CTransition... Transitions>
+template <typename Derived, CState InitialState, CTransition... Transitions>
 class Fsm_v4 {
+ private:
+  using TransitionsTypes = collect_types<Transitions...>;
+  using StateVariant =
+      typename tuple_to_variant<typename TransitionsTypes::states>::type;
+  using EventVariant =
+      typename tuple_to_variant<typename TransitionsTypes::events>::type;
+
  public:
-  template <typename EventType>
+  template <CEvent EventType>
   bool processEvent(const EventType& event) {
     using TransitionType =
         typename FindTransition<std::decay_t<decltype(currentState)>, EventType,
@@ -118,11 +133,7 @@ class Fsm_v4 {
     }
   }
 
-  void processEvent(const EventVariant& event) {
-    std::visit([this](auto&& e) { processEvent(e); }, event);
-  }
-
-  template <typename TargetState>
+  template <CState TargetState>
   bool isInState() const {
     return std::holds_alternative<TargetState>(currentState);
   }
@@ -138,15 +149,10 @@ class Fsm_v4 {
  private:
   StateVariant currentState;
 
-  friend Derived;
-
   Fsm_v4() { currentState.template emplace<InitialState>(); }
 
   template <typename NewState>
   void setState() {
-    static_assert(std::is_base_of_v<State<NewState>, NewState>,
-                  "NewState must inherit from State<NewState>");
-
     if constexpr (requires {
                     static_cast<Derived*>(this)->onStateTransition(NewState{});
                   }) {
@@ -187,6 +193,8 @@ class Fsm_v4 {
     }
     return false;
   }
+
+  friend Derived;
 };
 }  // namespace m
 

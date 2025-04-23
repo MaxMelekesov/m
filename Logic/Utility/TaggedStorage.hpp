@@ -7,119 +7,43 @@
  *
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
-#ifndef TAGGEDSTORAGE_HPP
-#define TAGGEDSTORAGE_HPP
+#ifndef TAGGED_STORAGE_HPP
+#define TAGGED_STORAGE_HPP
 
 #include <type_traits>
 #include <utility>
 
 namespace m {
 
-/**
- * @brief Base class for all tags
- */
-struct TagBase {};
-
-template <typename T>
-concept CTag = std::is_base_of_v<m::TagBase, T>;
-
-/**
- * @brief Tag template for defining typed settings with default values
- *
- * @tparam Derived The derived tag class (CRTP pattern)
- * @tparam Type The data type of the value associated with this tag
- * @tparam DefaultValue The default value for this tag
- *
- * Example:
- *
- *     struct TemperatureTag : public Tag<TemperatureTag, int, 25> {};
- *     struct EnabledTag : public Tag<EnabledTag, bool, false> {};
- */
-template <typename Derived, typename Type, Type DefaultValue>
-struct Tag : public TagBase {
+template <typename Type, Type DefaultValue>
+struct Tag {
   using ValueType = Type;
   static constexpr Type default_value = DefaultValue;
 };
 
-namespace {
-template <typename Tag, typename... Tags>
-struct has_tag : std::disjunction<std::is_same<Tag, Tags>...> {};
-}  // namespace
+template <typename T>
+concept CTag =
+    std::is_base_of_v<Tag<typename T::ValueType, T::default_value>, T>;
 
-/**
- * @brief A compile-time container for storing and retrieving values by their
- * tag types
- *
- * TaggedStorage provides type-safe access to a collection of values, each
- * identified by a unique tag type. This allows for strongly-typed access to
- * settings without string-based lookup or runtime overhead.
- *
- * Key features:
- * - All elements are stored sequentially in memory with defined layout
- * - Can be directly serialized and deserialized as binary data
- * - Supports persistence (saving/loading from storage)
- * - Zero runtime overhead for element access
- *
- * Example usage:
- *
- *     // Define tag types
- *     struct TemperatureTag : public Tag<int, 25> {};
- *     struct EnabledTag : public Tag<bool, false> {};
- *     struct NameTag : public Tag<const char*, "Default"> {};
- *
- *     // Create a storage with these tags
- *     TaggedStorage<TemperatureTag, EnabledTag, NameTag> storage;
- *
- *     // Get values (returns default values initially)
- *     int temp = storage.get<TemperatureTag>();      // temp = 25
- *     bool enabled = storage.get<EnabledTag>();      // enabled = false
- *
- *     // Set values
- *     storage.set<TemperatureTag>(30);
- *     storage.set<EnabledTag>(true);
- *
- *     // Get updated values
- *     temp = storage.get<TemperatureTag>();          // temp = 30
- *     enabled = storage.get<EnabledTag>();           // enabled = true
- *
- *     // Serialization example
- *     void saveToFlash(const TaggedStorage<TemperatureTag, EnabledTag>&
- * storage) {
- *         // Direct binary serialization is possible due to sequential memory
- * layout
- *          flash.write(0, &storage, sizeof(storage));
- *         // or
- *          std::array<uint8_t, sizeof(storage)> buf;
- *          m::serilaize(buf, storage);
- *     }
- *
- *     // Deserialization example
- *     void loadFromFlash(TaggedStorage<TemperatureTag, EnabledTag>& storage) {
- *         flash.read(0, &storage, sizeof(storage));
- *       // or
- *          std::array<uint8_t, sizeof(storage)> buf;
- *          m::deserilaize<decltype(storage)>(buf);
- *     }
- *
- * @tparam Tags The tag types that define the values stored in this container
- */
-template <typename... Tags>
+template <typename Tag, typename... Tags>
+concept CIsStorageTag = (std::is_same_v<Tag, Tags> || ...);
+
+template <typename Tag, typename Value>
+concept CIsTagValueType = std::is_convertible_v<Value, typename Tag::ValueType>;
+
+template <CTag... Tags>
 struct TaggedStorage;
 
-/**
- * @brief Recursive case for TaggedStorage with multiple tags
- */
-template <typename FirstTag, typename... RestTags>
+template <CTag FirstTag, CTag... RestTags>
 struct TaggedStorage<FirstTag, RestTags...> {
   typename FirstTag::ValueType value;
   TaggedStorage<RestTags...> rest;
 
   constexpr TaggedStorage() : value(FirstTag::default_value), rest() {}
 
-  template <typename Tag>
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, FirstTag, RestTags...>
   auto get() {
-    static_assert(has_tag<Tag, FirstTag, RestTags...>::value,
-                  "Tag not found in TaggedStorage");
     if constexpr (std::is_same_v<Tag, FirstTag>) {
       return value;
     } else {
@@ -127,10 +51,9 @@ struct TaggedStorage<FirstTag, RestTags...> {
     }
   }
 
-  template <typename Tag>
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, FirstTag, RestTags...>
   auto get() const {
-    static_assert(has_tag<Tag, FirstTag, RestTags...>::value,
-                  "Tag not found in TaggedStorage");
     if constexpr (std::is_same_v<Tag, FirstTag>) {
       return value;
     } else {
@@ -138,10 +61,10 @@ struct TaggedStorage<FirstTag, RestTags...> {
     }
   }
 
-  template <typename Tag, typename Value>
+  template <CTag Tag, typename Value>
+    requires CIsStorageTag<Tag, FirstTag, RestTags...> &&
+             CIsTagValueType<Tag, Value>
   void set(Value&& new_walue) {
-    static_assert(has_tag<Tag, FirstTag, RestTags...>::value,
-                  "Tag not found in TaggedStorage");
     if constexpr (std::is_same_v<Tag, FirstTag>) {
       value = std::forward<Value>(new_walue);
     } else {
@@ -150,36 +73,30 @@ struct TaggedStorage<FirstTag, RestTags...> {
   }
 };
 
-/**
- * @brief Base case for TaggedStorage with a single tag
- */
-template <typename LastTag>
+template <CTag LastTag>
 struct TaggedStorage<LastTag> {
   typename LastTag::ValueType value;
 
   constexpr TaggedStorage() : value(LastTag::default_value) {}
 
-  template <typename Tag>
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, LastTag>
   auto get() {
-    static_assert(std::is_same_v<Tag, LastTag>,
-                  "Tag not found in TaggedStorage");
     return value;
   }
 
-  template <typename Tag>
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, LastTag>
   auto get() const {
-    static_assert(std::is_same_v<Tag, LastTag>,
-                  "Tag not found in TaggedStorage");
     return value;
   }
 
-  template <typename Tag, typename Value>
+  template <CTag Tag, typename Value>
+    requires CIsStorageTag<Tag, LastTag> && CIsTagValueType<Tag, Value>
   void set(Value&& new_walue) {
-    static_assert(std::is_same_v<Tag, LastTag>,
-                  "Tag not found in TaggedStorage");
     value = std::forward<Value>(new_walue);
   }
 };
 }  // namespace m
 
-#endif  // TAGGEDSTORAGE_HPP
+#endif  // TAGGED_STORAGE_HPP

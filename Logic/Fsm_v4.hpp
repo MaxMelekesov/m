@@ -164,33 +164,24 @@ class Fsm_v4 {
 
   template <typename FromState, typename EventType>
   void invokeHandleEvent() {
-    if constexpr (requires {
-                    static_cast<Derived*>(this)->handleEvent(FromState{},
-                                                             EventType{});
-                  }) {
-      static_cast<Derived*>(this)->handleEvent(FromState{}, EventType{});
-    }
+    static_cast<Derived*>(this)->handleEvent(FromState{}, EventType{});
   }
 
   template <typename FromState, typename EventType>
   bool checkAndProcessEvent() {
-    if constexpr (requires {
-                    static_cast<Derived*>(this)->checkEvent(FromState{},
-                                                            EventType{});
-                  }) {
-      if (static_cast<Derived*>(this)->checkEvent(FromState{}, EventType{})) {
-        if constexpr (requires {
-                        static_cast<Derived*>(this)->onEvent(EventType{});
-                      }) {
-          static_cast<Derived*>(this)->onEvent(EventType{});
-        }
-
-        invokeHandleEvent<FromState, EventType>();
-        setState<typename FindTransition<FromState, EventType,
-                                         Transitions...>::type::To>();
-        return true;
+    if (static_cast<Derived*>(this)->checkEvent(FromState{}, EventType{})) {
+      if constexpr (requires {
+                      static_cast<Derived*>(this)->onEvent(EventType{});
+                    }) {
+        static_cast<Derived*>(this)->onEvent(EventType{});
       }
+
+      invokeHandleEvent<FromState, EventType>();
+      setState<typename FindTransition<FromState, EventType,
+                                       Transitions...>::type::To>();
+      return true;
     }
+
     return false;
   }
 

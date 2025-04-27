@@ -51,7 +51,7 @@ namespace m {
  *             return flash_.read(0, &storage, sizeof(storage));
  *         }
  *
- *         // Friend declaration needed for CRTP
+ *         // Friend declaration needed for access to private members
  *         friend Settings;
  *     };
  *

@@ -19,6 +19,8 @@
 
 class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
  public:
+  using type = Us<uint32_t>;
+
   TimeUs() {
     TIM_ClockConfigTypeDef sClockSourceConfig = {0};
     TIM_MasterConfigTypeDef sMasterConfig = {0};
@@ -75,6 +77,8 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
 
 class TimeMs final : public m::ifc::ITime<Ms<uint32_t>> {
  public:
+  using type = Ms<uint32_t>;
+
   TimeMs() {}
 
   TimeMs(const TimeMs&) = delete;

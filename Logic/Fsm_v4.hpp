@@ -11,9 +11,53 @@
 #ifndef FSM_V4_H
 #define FSM_V4_H
 
-#include <concepts>
 #include <type_traits>
 #include <variant>
+
+/* Usage example:
+
+struct Idle : m::State {};
+struct Active : m::State {};
+struct Start : m::Event {};
+struct Stop : m::Event {};
+
+class MyFsm : m::Fsm_v4<MyFsm, Idle, m::Transition<Idle, Start, Active>,
+                        m::Transition<Active, Stop, Idle>> {
+ public:
+  void handle() { checkEvents(); }
+
+ private:
+  // Сhecking and processing events:
+  bool checkEvent(Idle, Start) { return true; }
+  void handleEvent(Idle, Start) {}
+
+  bool checkEvent(Active, Stop) { return true; }
+  void handleEvent(Active, Stop) {}
+
+  // Additional:
+  //  Log events
+  void onEvent(Start) {}
+  void onEvent(Stop) {}
+
+  // Log state transitions
+  void onStateTransition(Idle) {}
+  void onStateTransition(Active) {}
+
+  // Fsm_v4 must be declared as a friend so it can access private and protected
+  // methods of the derived class (like checkEvent, handleEvent, onEvent,
+  // onStateTransition).
+  friend Fsm_v4;
+};
+
+MyFsm fsm;
+// Directly process event
+fsm.processEvent(Start{});
+bool res = fsm.isInState<Active>();
+// Chek & process events
+while (1) {
+  fsm.handle();
+}
+*/
 
 namespace m {
 
@@ -26,6 +70,12 @@ concept CState = std::is_base_of_v<State, T>;
 template <typename T>
 concept CEvent = std::is_base_of_v<Event, T>;
 
+/**
+ * Describes a transition in the FSM.
+ * @tparam FromState - source state
+ * @tparam EventType - event triggering the transition
+ * @tparam ToState - target state
+ */
 template <CState FromState, CEvent EventType, CState ToState>
 struct Transition {
   using From = FromState;
@@ -43,6 +93,9 @@ concept CTransition =
     CState<typename T::To>;
 
 namespace {
+/**
+ * Collects all unique states and events from the transition list.
+ */
 template <typename... Ts>
 struct collect_types;
 
@@ -102,6 +155,12 @@ struct FindTransition<CurrentState, EventType> {
 
 }  // namespace
 
+/**
+ * Finite State Machine with event-driven transitions.
+ * @tparam Derived - user FSM implementation
+ * @tparam InitialState - initial state
+ * @tparam Transitions - list of transitions
+ */
 template <typename Derived, CState InitialState, CTransition... Transitions>
 class Fsm_v4 {
  private:
@@ -112,6 +171,14 @@ class Fsm_v4 {
       typename tuple_to_variant<typename TransitionsTypes::events>::type;
 
  public:
+  /**
+   * Forces handling of a new event for the current state. If a transition
+   * is defined, it performs the transition and calls handlers.
+   * @tparam EventType - event type
+   * @param event - event object
+   * @return true if the transition is performed; false if the transition is
+   * not defined
+   */
   template <CEvent EventType>
   bool processEvent(const EventType& event) {
     using TransitionType =
@@ -133,11 +200,21 @@ class Fsm_v4 {
     }
   }
 
+  /**
+   * Checks if the FSM is in the specified state.
+   * @tparam TargetState - state to check
+   * @return true if the current state matches TargetState
+   */
   template <CState TargetState>
   bool isInState() const {
     return std::holds_alternative<TargetState>(currentState);
   }
 
+  /**
+   * Checks all possible events for the current state.
+   * When the first event occurs, a transition to a new state is made, the
+   * remaining events are not checked.
+   */
   void checkEvents() {
     [&]<typename... Ts>(Ts...) {
       ((std::holds_alternative<typename Ts::From>(currentState) &&

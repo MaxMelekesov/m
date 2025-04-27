@@ -34,37 +34,42 @@ namespace m {
  *
  * Example usage:
  *
- *     // Define tag types
- *     struct TemperatureTag : public Tag<int, 25> {};
- *     struct EnabledTag : public Tag<bool, false> {};
+ * ```cpp
+ * // Define tag types
+ * struct TemperatureTag : public Tag<int, 25> {};
+ * struct EnabledTag : public Tag<bool, false> {};
  *
- *     // Define settings manager with persistence
- *     class DeviceSettings : public Settings<DeviceSettings, TemperatureTag,
- * EnabledTag> { private: Flash& flash_;
+ * // Define settings manager with persistence
+ * class DeviceSettings : public Settings<DeviceSettings, TemperatureTag,
+ * EnabledTag> { public: DeviceSettings(Flash& flash) : flash_(flash) {}
  *
- *         // Implement required persistence methods
- *         bool saveImpl(StorageType& storage) {
- *             return flash_.write(0, &storage, sizeof(storage));
- *         }
+ * private:
+ *     Flash& flash_;
  *
- *         bool loadImpl(StorageType& storage) {
- *             return flash_.read(0, &storage, sizeof(storage));
- *         }
- *
- *         // Friend declaration needed for access to private members
- *         friend Settings;
- *     };
- *
- *     // Usage example
- *     DeviceSettings settings(flash);
- *     settings.setValue<TemperatureTag>(30);
- *     settings.setValue<EnabledTag>(true);
- *     if(settings.hasChanges()) {
- *         settings.save();
+ *     // Implement required persistence methods
+ *     bool saveImpl(StorageType& storage) {
+ *         return flash_.write(0, &storage, sizeof(storage));
  *     }
  *
- *     int temp = settings.getValue<TemperatureTag>(); // temp = 30
- *     bool enabled = settings.getValue<EnabledTag>(); // enabled = true
+ *     bool loadImpl(StorageType& storage) {
+ *         return flash_.read(0, &storage, sizeof(storage));
+ *     }
+ *
+ *     // Friend declaration needed for access to private members
+ *     friend Settings;
+ * };
+ *
+ * // Usage example
+ * DeviceSettings settings(flash);
+ * settings.setValue<TemperatureTag>(30);
+ * settings.setValue<EnabledTag>(true);
+ * if (settings.hasChanges()) {
+ *     settings.save();
+ * }
+ *
+ * int temp = settings.getValue<TemperatureTag>();   // temp = 30
+ * bool enabled = settings.getValue<EnabledTag>();   // enabled = true
+ * ```
  */
 template <typename Derived, CTag... SettingsTags>
 class Settings {

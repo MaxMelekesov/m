@@ -14,7 +14,7 @@
 #include <type_traits>
 #include <variant>
 
-/* Usage example:
+/* Example usage:
 
 struct Idle : m::State {};
 struct Active : m::State {};

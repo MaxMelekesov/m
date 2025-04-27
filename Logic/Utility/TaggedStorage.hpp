@@ -13,6 +13,28 @@
 #include <type_traits>
 #include <utility>
 
+/* Example usage:
+ *
+ * ```cpp
+ * // Define tag types
+ * struct TemperatureTag : public m::Tag<int, 25> {};
+ * struct EnabledTag : public m::Tag<bool, false> {};
+ *
+ * // Create storage for tags
+ * m::TaggedStorage<TemperatureTag, EnabledTag> storage;
+ *
+ * // Access and modify values
+ * int temp = storage.get<TemperatureTag>();      // temp = 25 (default)
+ * bool enabled = storage.get<EnabledTag>();      // enabled = false (default)
+ *
+ * storage.set<TemperatureTag>(30);
+ * storage.set<EnabledTag>(true);
+ *
+ * temp = storage.get<TemperatureTag>();          // temp = 30
+ * enabled = storage.get<EnabledTag>();           // enabled = true
+ * ```
+ */
+
 namespace m {
 
 template <typename Type, Type DefaultValue>

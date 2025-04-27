@@ -77,4 +77,8 @@ class Ms {
   type value_;
 };
 
+template <typename T>
+concept CMs =
+    requires { typename T::type; } && std::is_same_v<T, Ms<typename T::type>>;
+
 #endif  // MS_H

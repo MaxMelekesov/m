@@ -77,4 +77,8 @@ class Us {
   type value_;
 };
 
+template <typename T>
+concept CUs =
+    requires { typename T::type; } && std::is_same_v<T, Us<typename T::type>>;
+
 #endif  // US_H

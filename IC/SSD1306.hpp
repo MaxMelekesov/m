@@ -12,6 +12,7 @@
 #define SSD1306_H
 
 #include <IIO_Sync.hpp>
+#include <Ms.hpp>
 
 namespace m::ic {
 

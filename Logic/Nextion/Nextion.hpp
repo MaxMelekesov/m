@@ -22,7 +22,7 @@
 #include <string_view>
 #include <variant>
 
-namespace m {
+namespace m::nxt {
 
 namespace FN {
 struct IdleState : m::State {};
@@ -34,6 +34,93 @@ struct ErrorEvent : m::Event {};
 struct PacketReceivedEvent : m::Event {};
 
 }  // namespace FN
+
+enum class ReturnCode : uint8_t {
+  Success = 0x01,                    // Command successful
+  InvalidComponentId = 0x02,         // Component ID invalid
+  InvalidPageId = 0x03,              // Page ID invalid
+  InvalidPictureId = 0x04,           // Picture ID invalid
+  InvalidFontId = 0x05,              // Font ID invalid
+  InvalidFileOperation = 0x06,       // File operation failed
+  Crc_Error = 0x09,                  // CRC error
+  InvalidBaudRate = 0x11,            // Baud rate setting invalid
+  InvalidCurve = 0x12,               // Invalid curve control ID
+  InvalidVariableAssignment = 0x1A,  // Variable name/value invalid
+  InvalidWaveformChannel = 0x1B,     // Invalid waveform channel
+  InvalidWaveformMode = 0x1C,        // Invalid waveform mode
+  InvalidWaveformSamples = 0x1D,     // Invalid waveform samples
+  InvalidWaveformSampleRate = 0x1E,  // Invalid waveform sample rate
+  SerialBufferOverflow = 0x24,       // Serial buffer overflow
+  TouchEvent = 0x65,                 // Touch event
+  CurrentPageNumber = 0x66,          // Current page number
+  TouchCoordinate = 0x67,            // Touch coordinate
+  TouchInSleep = 0x68,               // Touch event in sleep mode
+  StringData = 0x70,                 // String data enclosed
+  NumericData = 0x71,                // Numeric data enclosed
+  AutoSleep = 0x86,               // Device automatically enters into sleep mode
+  AutoWake = 0x87,                // Device automatically wakes up
+  Ready = 0x88,                   // System successful start up
+  StartMicroSD = 0x89,            // Start SD card upgrade
+  TransparentDataReady = 0xFD,    // Transparent data finished
+  TransparentDataFinished = 0xFE  // Transparent data ready
+};
+
+enum class EventType : uint8_t {
+  Press = 0x01,        // Press event
+  Release = 0x02,      // Release event
+  ValueChanged = 0x03  // Value changed event
+};
+
+template <m::c::CRingDataLink IoType, std::size_t MaxComponents,
+          std::size_t BufferSize>
+class Nextion;
+
+class Component {
+ public:
+  constexpr Component(uint8_t page_id, uint8_t component_id,
+                      std::string_view name)
+      : page_id_(page_id), component_id_(component_id), name_(name) {}
+
+  virtual ~Component() = default;
+
+  [[nodiscard]] constexpr uint8_t getPageId() const { return page_id_; }
+
+  [[nodiscard]] constexpr uint8_t getComponentId() const {
+    return component_id_;
+  }
+
+  [[nodiscard]] constexpr std::string_view getName() const { return name_; }
+
+ protected:
+  using EventValue =
+      std::variant<uint32_t, std::span<uint8_t>, std::string_view>;
+
+  virtual void onEvent(EventType event, EventValue value) = 0;
+
+ private:
+  uint8_t page_id_;
+  uint8_t component_id_;
+  std::string_view name_;
+
+  template <m::c::CRingDataLink IoType, std::size_t MaxComponents,
+            std::size_t BufferSize>
+  friend class Nextion;
+};
+
+class Button : public Component {
+ public:
+  constexpr Button(uint8_t page_id, uint8_t component_id, std::string_view name,
+                   std::function<void(EventType)>&& cb)
+      : Component(page_id, component_id, name), cb_(std::move(cb)) {}
+
+ private:
+  std::function<void(EventType)> cb_;
+
+  void onEvent(EventType event, Component::EventValue value) override {
+    // std::holds_alternative<Component::EventValue::uint32_t>(value);
+    cb_(event);
+  }
+};
 
 template <m::c::CRingDataLink IoType, std::size_t MaxComponents = 32,
           std::size_t BufferSize = 256>
@@ -65,85 +152,6 @@ class Nextion
 
   void start() { start_ = true; }
   void stop() { start_ = false; }
-
-  enum class ReturnCode : uint8_t {
-    Success = 0x01,                    // Command successful
-    InvalidComponentId = 0x02,         // Component ID invalid
-    InvalidPageId = 0x03,              // Page ID invalid
-    InvalidPictureId = 0x04,           // Picture ID invalid
-    InvalidFontId = 0x05,              // Font ID invalid
-    InvalidFileOperation = 0x06,       // File operation failed
-    Crc_Error = 0x09,                  // CRC error
-    InvalidBaudRate = 0x11,            // Baud rate setting invalid
-    InvalidCurve = 0x12,               // Invalid curve control ID
-    InvalidVariableAssignment = 0x1A,  // Variable name/value invalid
-    InvalidWaveformChannel = 0x1B,     // Invalid waveform channel
-    InvalidWaveformMode = 0x1C,        // Invalid waveform mode
-    InvalidWaveformSamples = 0x1D,     // Invalid waveform samples
-    InvalidWaveformSampleRate = 0x1E,  // Invalid waveform sample rate
-    SerialBufferOverflow = 0x24,       // Serial buffer overflow
-    TouchEvent = 0x65,                 // Touch event
-    CurrentPageNumber = 0x66,          // Current page number
-    TouchCoordinate = 0x67,            // Touch coordinate
-    TouchInSleep = 0x68,               // Touch event in sleep mode
-    StringData = 0x70,                 // String data enclosed
-    NumericData = 0x71,                // Numeric data enclosed
-    AutoSleep = 0x86,             // Device automatically enters into sleep mode
-    AutoWake = 0x87,              // Device automatically wakes up
-    Ready = 0x88,                 // System successful start up
-    StartMicroSD = 0x89,          // Start SD card upgrade
-    TransparentDataReady = 0xFD,  // Transparent data finished
-    TransparentDataFinished = 0xFE  // Transparent data ready
-  };
-
-  enum class EventType : uint8_t {
-    Press = 0x01,        // Press event
-    Release = 0x02,      // Release event
-    ValueChanged = 0x03  // Value changed event
-  };
-
-  class Component {
-   public:
-    constexpr Component(uint8_t page_id, uint8_t component_id)
-        : page_id_(page_id), component_id_(component_id) {}
-
-    [[nodiscard]] constexpr uint8_t getPageId() const { return page_id_; }
-
-    [[nodiscard]] constexpr uint8_t getComponentId() const {
-      return component_id_;
-    }
-
-   protected:
-    using EventValue =
-        std::variant<uint32_t, std::span<uint8_t>, std::string_view>;
-
-    virtual void onEvent(EventType event, EventValue value) = 0;
-
-   private:
-    uint8_t page_id_;
-    uint8_t component_id_;
-
-    friend class Nextion;
-  };
-
-  class Button : public Component {
-   public:
-    constexpr Button(uint8_t page_id, uint8_t component_id,
-                     std::function<void(EventType)>&& cb)
-        : Component(page_id, component_id), cb_(std::move(cb)) {}
-
-    bool setPicture(uint8_t id) { return setPicture(*this, id); }
-
-   private:
-    std::function<void(EventType)> cb_;
-
-    void onEvent(EventType event, Component::EventValue value) override {
-      // std::holds_alternative<Component::EventValue::uint32_t>(value);
-      cb_(event);
-    }
-
-    friend class Nextion;
-  };
 
   bool registerComponent(Component& component) {
     if (component_count_ >= MaxComponents) {
@@ -258,12 +266,7 @@ class Nextion
   }
 
   bool sendCommandData(std::span<const uint8_t> data) {
-    if (data.size() > tx_buf_.size()) {
-      return false;
-    }
-    std::copy(data.begin(), data.end(), tx_buf_.begin());
-    auto tx_span = std::span<uint8_t>(tx_buf_.data(), data.size());
-    if (!io_.startTransmit(tx_buf_)) {
+    if (!io_.startTransmit(data)) {
       return false;
     }
 
@@ -277,11 +280,9 @@ class Nextion
   }
 
   bool setPicture(const Component& component, uint8_t id) {
-    // Format: page_id.component_id.pic=pictureId
-
-    int length =
-        snprintf(tx_buf_, tx_buf_.size(), "p[%u].b[%u].pic=%u",
-                 component.getPageId(), component.getComponentId(), id);
+    auto length = snprintf(tx_buf_, tx_buf_.size(), "%.*s.pic=%u\xFF\xFF\xFF",
+                           static_cast<int>(component.getName().size()),
+                           component.getName().data(), id);
 
     if (length <= 0 || length >= tx_buf_.size()) {
       return false;
@@ -507,6 +508,6 @@ class Nextion
 //        std::span<const uint8_t>(tx_buf_.data(), txBufferIndex_));
 //  }
 
-}  // namespace m
+}  // namespace m::nxt
 
 #endif  // NEXTION_HPP

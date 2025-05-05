@@ -122,6 +122,13 @@ class Button : public Component {
   }
 };
 
+template <typename T>
+concept CNextion = requires(T nxt, const Component& component, uint32_t id,
+                            std::string_view text) {
+  { nxt.setPicture(component, id) } -> std::same_as<bool>;
+  { nxt.setText(component, text) } -> std::same_as<bool>;
+};
+
 template <m::c::CRingDataLink IoType, std::size_t MaxComponents = 32,
           std::size_t BufferSize = 256>
 class Nextion
@@ -162,7 +169,7 @@ class Nextion
     return true;
   }
 
-  bool setPicture(const Component& component, uint8_t id) {
+  bool setPicture(const Component& component, uint32_t id) {
     auto length =
         snprintf(tx_buf_, tx_buf_.size(), "%.*s.pic=%u\xFF\xFF\xFF",
                  component.getName().size(), component.getName().data(), id);
@@ -342,186 +349,8 @@ class Nextion
   friend FsmBase;
 };
 
-//  // Text component
-//  template <std::size_t MaxTextLen = 64>
-//  class Text : public ComponentBase {
-//   public:
-//    constexpr Text(uint8_t page_id, uint8_t component_id)
-//        : ComponentBase(page_id, component_id) {}
-
-//    // Set callback for text change events
-//    constexpr void setOnValueChanged(
-//        std::function<void(std::string_view)> callback) {
-//      onValueChanged_ = std::move(callback);
-//    }
-
-//    // Handle events from base class
-//    void onEvent(EventType event, uint32_t value) override {
-//      if (event == EventType::ValueChanged && onValueChanged_) {
-//        onValueChanged_(textValue_);
-//      }
-//    }
-
-//    // Update text content
-//    void setText(std::string_view text) {
-//      std::size_t copyLen = std::min(text.size(), MaxTextLen - 1);
-//      for (std::size_t i = 0; i < copyLen; ++i) {
-//        textValue_[i] = text[i];
-//      }
-//      textValue_[copyLen] = '\0';
-//    }
-
-//    // Get current text content
-//    [[nodiscard]] std::string_view getText() const {
-//      return std::string_view(textValue_.data());
-//    }
-
-//   private:
-//    std::array<char, MaxTextLen> textValue_{};
-//    std::function<void(std::string_view)> onValueChanged_;
-//  };
-
-//  // Number component
-//  class Number : public ComponentBase {
-//   public:
-//    constexpr Number(uint8_t page_id, uint8_t component_id)
-//        : ComponentBase(page_id, component_id), value_{0} {}
-
-//    // Set callback for value change events
-//    constexpr void setOnValueChanged(std::function<void(uint32_t)> callback)
-//    {
-//      onValueChanged_ = std::move(callback);
-//    }
-
-//    // Handle events from base class
-//    void onEvent(EventType event, uint32_t value) override {
-//      if (event == EventType::ValueChanged) {
-//        value_ = value;
-//        if (onValueChanged_) {
-//          onValueChanged_(value_);
-//        }
-//      }
-//    }
-
-//    // Set numeric value
-//    void setValue(uint32_t value) { value_ = value; }
-
-//    // Get current numeric value
-//    [[nodiscard]] uint32_t getValue() const { return value_; }
-
-//   private:
-//    uint32_t value_;
-//    std::function<void(uint32_t)> onValueChanged_;
-//  };
-
-//   private:
-//    std::function<void()> onPress_;
-//    std::function<void()> onRelease_;
-//  };
-
-//  // Progress bar component
-//  class ProgressBar : public ComponentBase {
-//   public:
-//    constexpr ProgressBar(uint8_t page_id, uint8_t component_id)
-//        : ComponentBase(page_id, component_id), value_{0} {}
-
-//    // Set progress value (0-100)
-//    void setValue(uint8_t value) { value_ = (value > 100) ? 100 : value; }
-
-//    // Get current progress value
-//    [[nodiscard]] uint8_t getValue() const { return value_; }
-
-//   private:
-//    uint8_t value_;
-//  };
-
-//  // Send command to set component text
-//  template <typename ComponentType>
-//  bool setComponentText(const ComponentType& component, std::string_view
-//  text)
-//  {
-//    // Format: page_id.component_id.txt="text"
-//    sendCommandStart();
-
-//    char cmdBuffer[32];
-//    int length =
-//        snprintf(cmdBuffer, sizeof(cmdBuffer), "p[%u].b[%u].txt=\"%.*s\"",
-//                 component.getPageId(), component.getComponentId(),
-//                 static_cast<int>(text.size()), text.data());
-
-//    if (length <= 0 || length >= static_cast<int>(sizeof(cmdBuffer))) {
-//      return false;
-//    }
-
-//    sendCommandData(
-//        std::span<const uint8_t>(reinterpret_cast<const
-//        uint8_t*>(cmdBuffer),
-//                                 static_cast<std::size_t>(length)));
-
-//    return sendCommandEnd();
-//  }
-
-//  // Send command to set component value
-//  template <typename ComponentType>
-//  bool setComponentValue(const ComponentType& component, uint32_t value) {
-//    // Format: page_id.component_id.val=value
-//    sendCommandStart();
-
-//    char cmdBuffer[32];
-//    int length =
-//        snprintf(cmdBuffer, sizeof(cmdBuffer), "p[%u].b[%u].val=%u",
-//                 component.getPageId(), component.getComponentId(), value);
-
-//    if (length <= 0 || length >= static_cast<int>(sizeof(cmdBuffer))) {
-//      return false;
-//    }
-
-//    sendCommandData(
-//        std::span<const uint8_t>(reinterpret_cast<const
-//        uint8_t*>(cmdBuffer),
-//                                 static_cast<std::size_t>(length)));
-
-//    return sendCommandEnd();
-//  }
-
-//  // Change to specific page
-//  bool setPage(uint8_t page_id) {
-//    sendCommandStart();
-
-//    char cmdBuffer[16];
-//    int length = snprintf(cmdBuffer, sizeof(cmdBuffer), "page %u", page_id);
-
-//    if (length <= 0 || length >= static_cast<int>(sizeof(cmdBuffer))) {
-//      return false;
-//    }
-
-//    sendCommandData(
-//        std::span<const uint8_t>(reinterpret_cast<const
-//        uint8_t*>(cmdBuffer),
-//                                 static_cast<std::size_t>(length)));
-
-//    return sendCommandEnd();
-//  }
-
-// private:
-//  // Send command start (cleans buffer)
-//  void sendCommandStart() { txBufferIndex_ = 0; }
-
-//  // Send command data
-
-//  // Finalize and send command
-//  bool sendCommandEnd() {
-//    // Append command terminator
-//    for (auto terminator : CommandTerminator) {
-//      if (txBufferIndex_ < tx_buf_.size()) {
-//        tx_buf_[txBufferIndex_++] = terminator;
-//      }
-//    }
-
-//    // Send command to display
-//    return io_.writeAsync(
-//        std::span<const uint8_t>(tx_buf_.data(), txBufferIndex_));
-//  }
+static_assert(CNextion<Nextion<NextionDataLink<Us<uint32_t>>, 64, 1024>>,
+              "Nextion does not satisfy CNextion concept");
 
 }  // namespace m::nxt
 

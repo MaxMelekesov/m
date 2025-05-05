@@ -20,7 +20,7 @@
 #include <optional>
 #include <ranges>
 
-namespace m {
+namespace m::nxt {
 
 template <CUs UsType>
 class NextionDataLink {
@@ -184,9 +184,9 @@ class NextionDataLink {
   }
 };
 
-static_assert(m::c::CRingDataLink<m::NextionDataLink<Us<uint32_t>>>,
+static_assert(m::c::CRingDataLink<NextionDataLink<Us<uint32_t>>>,
               "NextionDataLink does not satisfy CDataLink concept");
 
-}  // namespace m
+}  // namespace m::nxt
 
 #endif  // NEXTION_DATA_LINK_HPP

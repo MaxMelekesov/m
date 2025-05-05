@@ -95,7 +95,7 @@ class Component {
   using EventValue =
       std::variant<uint32_t, std::span<uint8_t>, std::string_view>;
 
-  virtual void onEvent(EventType event, EventValue value) = 0;
+  virtual void onEvent(EventType event, EventValue value) {}
 
  private:
   uint8_t page_id_;

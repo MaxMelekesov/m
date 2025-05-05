@@ -162,6 +162,35 @@ class Nextion
     return true;
   }
 
+  bool setPicture(const Component& component, uint8_t id) {
+    auto length =
+        snprintf(tx_buf_, tx_buf_.size(), "%.*s.pic=%u\xFF\xFF\xFF",
+                 component.getName().size(), component.getName().data(), id);
+
+    if (length <= 0 || length >= tx_buf_.size()) {
+      return false;
+    }
+
+    std::span<const uint8_t> span(tx_buf_);
+    bool res = sendCommandData(span.first(length));
+    return res;
+  }
+
+  bool setText(const Component& component, std::string_view text) {
+    auto length =
+        snprintf(tx_buf_, tx_buf_.size(), "%.*s.txt=\"%.*s\"\xFF\xFF\xFF",
+                 component.getName().size(), component.getName().data(),
+                 text.size(), text.data());
+
+    if (length <= 0 || length >= tx_buf_.size()) {
+      return false;
+    }
+
+    std::span<const uint8_t> span(tx_buf_);
+    bool res = sendCommandData(span.first(length));
+    return res;
+  }
+
  private:
   IoType& io_;
   std::array<Component*, MaxComponents> components_;
@@ -277,20 +306,6 @@ class Nextion
     }
 
     return false;
-  }
-
-  bool setPicture(const Component& component, uint8_t id) {
-    auto length = snprintf(tx_buf_, tx_buf_.size(), "%.*s.pic=%u\xFF\xFF\xFF",
-                           static_cast<int>(component.getName().size()),
-                           component.getName().data(), id);
-
-    if (length <= 0 || length >= tx_buf_.size()) {
-      return false;
-    }
-
-    std::span<const uint8_t> span(tx_buf_);
-    bool res = sendCommandData(span.first(length));
-    return res;
   }
 
   // #############################

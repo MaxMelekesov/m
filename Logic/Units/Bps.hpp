@@ -16,6 +16,7 @@
 
 template <typename T>
   requires std::is_arithmetic_v<T>
+// Bytes per second
 class Bps {
  public:
   using type = T;

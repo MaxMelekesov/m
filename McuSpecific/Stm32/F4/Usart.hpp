@@ -1,0 +1,116 @@
+/**
+ * This file is part of m library.
+ *
+ * m library is free software: you can redistribute it and/or modify
+ * it under the terms of the MIT License. See the LICENSE file in the
+ * project root for more information.
+ *
+ * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
+ */
+
+#ifndef USART_H
+#define USART_H
+
+#include <IIO_Async.hpp>
+#include <cstdint>
+#include <span>
+
+#include "stm32f4xx_hal_uart.h"
+
+class Usart final : public m::ifc::IIO_Async {
+ public:
+  Usart(UART_HandleTypeDef& huart, uint32_t baud)
+      : huart_(huart), baud_(baud) {}
+
+  uint32_t bytesToWrite() override { return huart_.hdmatx->Instance->NDTR; }
+
+  bool writeAsync(std::span<uint8_t const> data) override {
+    auto res = (HAL_UART_Transmit_DMA(&huart_, (uint8_t*)data.data(),
+                                      data.size()) == HAL_OK);
+    if (res) {
+      dma_tx_started_ = true;
+    }
+    return res;
+  }
+
+  bool abortWrite() override {
+    if (!dma_tx_started_) return true;
+    auto res = (HAL_UART_AbortTransmit(&huart_) == HAL_OK);
+    if (res) {
+      dma_tx_started_ = false;
+    }
+
+    return res;
+  }
+
+  bool writeDone() override {
+    if (dma_tx_started_) {
+      if (bytesToWrite() == 0) {
+        if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
+          dma_tx_started_ = false;
+          return true;
+        } else {
+          return false;
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
+  uint32_t bytesAvailable() override {
+    return rx_size_ - huart_.hdmarx->Instance->NDTR;
+  }
+
+  bool readAsync(std::span<uint8_t> data) override {
+    bool res = (HAL_UART_Receive_DMA(&huart_, (uint8_t*)data.data(),
+                                     data.size()) == HAL_OK);
+    if (res) {
+      dma_rx_started_ = true;
+      rx_size_ = data.size();
+    }
+    return res;
+  }
+
+  bool abortRead() override {
+    if (!dma_rx_started_) return true;
+    auto res = (HAL_UART_AbortReceive(&huart_) == HAL_OK);
+    if (res) {
+      dma_rx_started_ = false;
+    }
+
+    return res;
+  }
+
+  bool readDone() override {
+    if (dma_rx_started_) {
+      if (bytesAvailable() == rx_size_) {
+        if (abortRead()) {
+          if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
+  uint32_t getBaudrate() override { return baud_ / 10; }
+
+  bool setBaudrate(uint32_t baud) override { return false; }
+
+  bool error() override {
+    return HAL_UART_GetError(&huart_) != HAL_UART_ERROR_NONE;
+  }
+
+ private:
+  UART_HandleTypeDef& huart_;
+  uint32_t baud_;
+
+  bool dma_tx_started_ = false;
+  bool dma_rx_started_ = false;
+  uint32_t rx_size_ = 0;
+};
+
+#endif  // USART_H

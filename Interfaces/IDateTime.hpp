@@ -1,0 +1,65 @@
+/**
+ * This file is part of m library.
+ *
+ * m library is free software: you can redistribute it and/or modify
+ * it under the terms of the MIT License. See the LICENSE file in the
+ * project root for more information.
+ *
+ * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
+ */
+
+#ifndef IDATETIME_HPP
+#define IDATETIME_HPP
+
+#include <cstdint>
+
+namespace m::ifc {
+class IDateTime {
+ public:
+  virtual ~IDateTime() {}
+
+  enum class Month {
+    January = 1,
+    February,
+    March,
+    April,
+    May,
+    June,
+    July,
+    August,
+    September,
+    October,
+    November,
+    December
+  };
+  enum class Weekday {
+    Sunday = 1,
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday
+  };
+
+  struct Date {
+    uint16_t Year = 2'000;
+    Month month = Month::January;
+    uint8_t day = 1;
+    Weekday weekday = Weekday::Monday;
+  };
+  struct Time {
+    uint8_t Hours = 14;
+    uint8_t Minutes = 10;
+    uint8_t Seconds = 5;
+  };
+
+  virtual Date getDate() = 0;
+  virtual bool setDate(Date date) = 0;
+
+  virtual Time getTime() = 0;
+  virtual bool setTime(Time time) = 0;
+};
+}  // namespace m::ifc
+
+#endif  // v

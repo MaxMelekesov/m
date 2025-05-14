@@ -43,15 +43,15 @@ class IDateTime {
   };
 
   struct Date {
-    uint16_t Year = 2'000;
+    uint16_t year = 2'000;
     Month month = Month::January;
     uint8_t day = 1;
     Weekday weekday = Weekday::Monday;
   };
   struct Time {
-    uint8_t Hours = 14;
-    uint8_t Minutes = 10;
-    uint8_t Seconds = 5;
+    uint8_t hours = 0;
+    uint8_t minutes = 0;
+    uint8_t seconds = 0;
   };
 
   virtual Date getDate() = 0;

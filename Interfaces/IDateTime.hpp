@@ -55,10 +55,10 @@ class IDateTime {
   };
 
   virtual Date getDate() = 0;
-  virtual bool setDate(Date date) = 0;
+  virtual bool setDate(Date& date) = 0;
 
   virtual Time getTime() = 0;
-  virtual bool setTime(Time time) = 0;
+  virtual bool setTime(Time& time) = 0;
 };
 }  // namespace m::ifc
 

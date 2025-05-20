@@ -82,7 +82,7 @@ class Settings {
     if (storage_.template get<Tag>() != value) {
       storage_.template set<Tag>(value);
       has_changes_ = true;
-      return static_cast<Derived*>(this)->newChangeImpl();
+      static_cast<Derived*>(this)->newChangeImpl();
     }
   }
 

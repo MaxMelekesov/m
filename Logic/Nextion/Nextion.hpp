@@ -65,11 +65,7 @@ enum class ReturnCode : uint8_t {
   TransparentDataFinished = 0xFE  // Transparent data ready
 };
 
-enum class EventType : uint8_t {
-  Press = 0x01,        // Press event
-  Release = 0x02,      // Release event
-  ValueChanged = 0x03  // Value changed event
-};
+enum class EventType : uint8_t { Release = 0, Press = 1, ValueChanged = 3 };
 
 template <m::c::CRingDataLink IoType, std::size_t MaxComponents,
           std::size_t BufferSize>
@@ -211,8 +207,8 @@ class Nextion
   std::array<uint8_t, BufferSize> tx_buf_;
 
   void parseCommand(std::span<uint8_t> packet) {
-    if (packet.size() <
-        4) {  // At least return code + component ID + event type + 0xFF
+    if (packet.size() < 4) {
+      // At least return code + component ID + event type + 0xFF
       return;
     }
 

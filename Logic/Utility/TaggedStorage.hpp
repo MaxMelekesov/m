@@ -54,10 +54,14 @@ template <typename Tag, typename Value>
 concept CIsTagValueType = std::is_convertible_v<Value, typename Tag::ValueType>;
 
 template <CTag... Tags>
-struct TaggedStorage;
+struct TaggedStorage {
+  using type = std::tuple<Tags...>;
+};
 
 template <CTag FirstTag, CTag... RestTags>
 struct TaggedStorage<FirstTag, RestTags...> {
+  using type = std::tuple<FirstTag, RestTags...>;
+
   typename FirstTag::ValueType value;
   TaggedStorage<RestTags...> rest;
 
@@ -97,6 +101,8 @@ struct TaggedStorage<FirstTag, RestTags...> {
 
 template <CTag LastTag>
 struct TaggedStorage<LastTag> {
+  using type = std::tuple<LastTag>;
+
   typename LastTag::ValueType value;
 
   constexpr TaggedStorage() : value(LastTag::default_value) {}

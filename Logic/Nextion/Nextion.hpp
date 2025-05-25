@@ -181,15 +181,16 @@ class Nextion
 
   bool setText(const Component& component, std::string_view text) {
     auto length =
-        snprintf(tx_buf_, tx_buf_.size(), "%.*s.txt=\"%.*s\"\xFF\xFF\xFF",
-                 component.getName().size(), component.getName().data(),
-                 text.size(), text.data());
+        snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
+                 "%.*s.txt=\"%.*s\"\xFF\xFF\xFF", component.getName().size(),
+                 component.getName().data(), text.size(), text.data());
 
     if (length <= 0 || length >= tx_buf_.size()) {
       return false;
     }
 
-    std::span<const uint8_t> span(tx_buf_);
+    std::span<const uint8_t> span(static_cast<uint8_t*>(tx_buf_.data()),
+                                  tx_buf_.size());
     bool res = sendCommandData(span.first(length));
     return res;
   }

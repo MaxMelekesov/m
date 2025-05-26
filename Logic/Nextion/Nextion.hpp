@@ -190,8 +190,7 @@ class Nextion
       return false;
     }
 
-    std::span<const uint8_t> span(static_cast<uint8_t*>(tx_buf_.data()),
-                                  tx_buf_.size());
+    std::span<const uint8_t> span(tx_buf_);
     bool res = sendCommandData(span.first(length));
     return res;
   }

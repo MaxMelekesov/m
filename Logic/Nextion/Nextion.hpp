@@ -168,10 +168,10 @@ class Nextion
   bool setPicture(const Component& component, uint32_t id) {
     auto length =
         snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
-                 "%.*s.pic=%u\xFF\xFF\xFF", component.getName().size(),
+                 "%.*s.pic=%lu\xFF\xFF\xFF", component.getName().size(),
                  component.getName().data(), id);
 
-    if (length <= 0 || length >= tx_buf_.size()) {
+    if (length <= 0) {
       return false;
     }
 
@@ -186,7 +186,7 @@ class Nextion
                  "%.*s.txt=\"%.*s\"\xFF\xFF\xFF", component.getName().size(),
                  component.getName().data(), text.size(), text.data());
 
-    if (length <= 0 || length >= tx_buf_.size()) {
+    if (length <= 0) {
       return false;
     }
 

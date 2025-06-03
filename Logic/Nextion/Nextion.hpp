@@ -195,6 +195,21 @@ class Nextion
     return res;
   }
 
+  bool setNumber(const Component& component, int32_t number) {
+    auto length =
+        snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
+                 "%.*s.val=%ld\xFF\xFF\xFF", component.getName().size(),
+                 component.getName().data(), number);
+
+    if (length <= 0) {
+      return false;
+    }
+
+    std::span<const uint8_t> span(tx_buf_);
+    bool res = sendCommandData(span.first(length));
+    return res;
+  }
+
  private:
   IoType& io_;
   std::array<Component*, MaxComponents> components_;

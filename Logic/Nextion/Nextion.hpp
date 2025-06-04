@@ -195,6 +195,21 @@ class Nextion
     return res;
   }
 
+  bool setVisibility(const Component& component, bool value) {
+    auto length =
+        snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
+                 "vis %.*s,%c\xFF\xFF\xFF", component.getName().size(),
+                 component.getName().data(), value ? '1' : '0');
+
+    if (length <= 0) {
+      return false;
+    }
+
+    std::span<const uint8_t> span(tx_buf_);
+    bool res = sendCommandData(span.first(length));
+    return res;
+  }
+
   bool setNumber(const Component& component, int32_t number) {
     auto length =
         snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),

@@ -50,7 +50,11 @@ class Timer {
     return time_.getDiff(start_) >= wait_;
   }
 
-  void updateTimeout(type value) { wait_ = value; }
+  bool updateTimeout(type value) {
+    if (!running_) return false;
+    wait_ = value;
+    return true;
+  }
 
  private:
   ifc::ITime<type>& time_;

@@ -61,7 +61,7 @@ class MedianFilter {
   std::array<T, N> window_;
   std::array<T, N> copy_;
   std::size_t index_ = 0;
-  bool first_run_ = false;
+  bool first_run_ = true;
 };
 }  // namespace m
 

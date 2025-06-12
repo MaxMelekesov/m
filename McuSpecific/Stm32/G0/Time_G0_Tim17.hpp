@@ -20,25 +20,25 @@
 class TimeUs final : public m::ifc::ITime<Us<uint16_t>> {
  public:
   TimeUs() {
-    htim17.Instance = TIM17;
-    htim17.Init.Prescaler = HAL_RCC_GetPCLK1Freq() / 1'000'000 - 1;
-    htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim17.Init.Period = 65535;
-    htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim17.Init.RepetitionCounter = 0;
-    htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    htim17_.Instance = TIM17;
+    htim17_.Init.Prescaler = HAL_RCC_GetPCLK1Freq() / 1'000'000 - 1;
+    htim17_.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim17_.Init.Period = 65535;
+    htim17_.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim17_.Init.RepetitionCounter = 0;
+    htim17_.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 
-    htim17.Base_MspInitCallback = [](TIM_HandleTypeDef* htim) {
+    htim17_.Base_MspInitCallback = [](TIM_HandleTypeDef* htim) {
       __HAL_RCC_TIM17_CLK_ENABLE();
     };
-    htim17.Base_MspDeInitCallback = [](TIM_HandleTypeDef* htim) {
+    htim17_.Base_MspDeInitCallback = [](TIM_HandleTypeDef* htim) {
       __HAL_RCC_TIM17_CLK_DISABLE();
     };
 
-    if (HAL_TIM_Base_Init(&htim17) != HAL_OK) {
+    if (HAL_TIM_Base_Init(&htim17_) != HAL_OK) {
     }
 
-    HAL_TIM_Base_Start(&htim17);
+    HAL_TIM_Base_Start(&htim17_);
   }
 
   TimeUs(const TimeUs&) = delete;

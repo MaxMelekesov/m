@@ -18,6 +18,7 @@ namespace m::c::mcu {
 template <typename T>
 concept CEnable = requires(T t) {
   { t.enable() } -> std::same_as<bool>;
+  { t.isEnabled() } -> std::same_as<bool>;
   { t.disable() } -> std::same_as<bool>;
 };
 

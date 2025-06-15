@@ -17,28 +17,23 @@
 /* Example usage:
  *
  * ```cpp
- * // Define tag types
- * struct ModeTag {};
- * struct EnableTag {};
- * struct ValueTag {};
- *
- * // Define bit fields with size, tag, and default value
- * using ModeField = m::BitField<2, ModeTag, 0>;
- * using EnableField = m::BitField<1, EnableTag, 0>;
- * using ValueField = m::BitField<10, ValueTag, 12>;
+ * // Define bit field types using CRTP
+ * struct ModeField : public m::BitField<2, ModeField, 0> {};
+ * struct EnableField : public m::BitField<1, EnableField, 0> {};
+ * struct ValueField : public m::BitField<10, ValueField, 12> {};
  *
  * // Create register with fields (ordered from LSB to MSB)
  * using MyRegister = m::Register<uint16_t, ModeField, m::DummyField<3>,
- * ValueField, EnableField>;
+ *                                ValueField, EnableField>;
  *
  * MyRegister reg;
  *
  * // Access fields by tag
- * reg.set<ModeTag>(1);
- * reg.set<ValueTag>(13);
+ * reg.set<ModeField>(1);
+ * reg.set<ValueField>(13);
  *
- * auto mode = reg.get<ModeTag>();    // mode = 1
- * auto value = reg.get<ValueTag>();  // value = 13
+ * auto mode = reg.get<ModeField>();    // mode = 1
+ * auto value = reg.get<ValueField>();  // value = 13
  * ```
  */
 
@@ -48,15 +43,12 @@ namespace m {
 template <typename T>
 concept CRegisterType = std::is_integral_v<T> && std::is_unsigned_v<T>;
 
-// Base class for bit field tags
-template <typename Tag>
-concept CBitFieldTag = std::is_empty_v<Tag>;
-
-// BitField template - represents a bit field with size, tag, and default value
-template <std::size_t Size, typename Tag, auto DefaultValue = 0>
-  requires CBitFieldTag<Tag> && (Size > 0) && (Size <= 64)
+// BitField template using CRTP - represents a bit field with size, tag, and
+// default value
+template <std::size_t Size, typename Derived, auto DefaultValue = 0>
+  requires(Size > 0) && (Size <= 64)
 struct BitField {
-  using TagType = Tag;
+  using TagType = Derived;
   static constexpr std::size_t size = Size;
   static constexpr auto default_value = DefaultValue;
   static constexpr auto max_value = (1ULL << Size) - 1;
@@ -65,6 +57,11 @@ struct BitField {
   static_assert(static_cast<std::uint64_t>(DefaultValue) <= max_value,
                 "Default value exceeds bit field capacity");
 };
+
+// Concept for bit field tags (now they inherit from BitField)
+template <typename T>
+concept CBitFieldTag =
+    std::is_base_of_v<BitField<T::size, T, T::default_value>, T>;
 
 // DummyField - represents unused bits in a register
 template <std::size_t Size>

@@ -62,13 +62,13 @@ concept CField = (std::is_same_v<Field, Fields> || ...);
 template <typename T>
 concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;
 
-template <CRegStorage StorageType, CBitField... Fields>
+template <CRegStorage Storage, CBitField... Fields>
   requires(sizeof...(Fields) > 0)
 class BitReg {
  public:
   constexpr BitReg() : data_(0) { ((setFieldDefault<Fields>()), ...); }
 
-  explicit constexpr BitReg(StorageType initial_value) : data_(initial_value) {}
+  explicit constexpr BitReg(Storage initial_value) : data_(initial_value) {}
 
   template <CBitField Field>
     requires CField<Field, Fields...>
@@ -82,16 +82,16 @@ class BitReg {
     requires CField<Field, Fields...>
   constexpr void set(Value value) {
     constexpr auto field_info = getFieldInfo<Field>();
-    const StorageType masked_value =
-        static_cast<StorageType>(value) & field_info.field_mask;
+    const Storage masked_value =
+        static_cast<Storage>(value) & field_info.field_mask;
 
     data_ = (data_ & ~field_info.register_mask) |
             (masked_value << field_info.offset);
   }
 
-  constexpr StorageType raw() const { return data_; }
+  constexpr Storage raw() const { return data_; }
 
-  constexpr void raw(StorageType value) { data_ = value; }
+  constexpr void raw(Storage value) { data_ = value; }
 
   constexpr void reset() {
     data_ = 0;
@@ -99,10 +99,10 @@ class BitReg {
   }
 
  private:
-  StorageType data_;
+  Storage data_;
 
   static constexpr std::size_t total_size = (Fields::size + ...);
-  static_assert(total_size <= sizeof(StorageType) * 8,
+  static_assert(total_size <= sizeof(Storage) * 8,
                 "Total field size exceeds storage type capacity");
 
   template <std::size_t Offset, std::size_t Size, auto DefaultValue>
@@ -110,8 +110,8 @@ class BitReg {
     static constexpr std::size_t offset = Offset;
     static constexpr std::size_t size = Size;
     static constexpr auto default_value = DefaultValue;
-    static constexpr StorageType field_mask = (StorageType(1) << Size) - 1;
-    static constexpr StorageType register_mask = field_mask << Offset;
+    static constexpr Storage field_mask = (Storage(1) << Size) - 1;
+    static constexpr Storage register_mask = field_mask << Offset;
   };
 
   template <CBitField Field>

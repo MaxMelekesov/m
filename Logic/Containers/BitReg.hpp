@@ -15,14 +15,10 @@
 #include <type_traits>
 
 /* Example usage:
-
  *
- * // Example with DummyField for unused bits
- * struct ConfigField : public m::BitField<4, ConfigField, 15> {};
- * struct DataField : public m::BitField<8, DataField, 0> {};
+ * struct ConfigField : public m::BitField<4, ConfigField, uint8_t(15)> {};
+ * struct DataField : public m::BitField<8, DataField, uint8_t(0)> {};
  *
- * // 32-bit register with unused bits
- * // Layout: Config(4) + Dummy(4) + Data(8) + Dummy(16) = 32 bits
  * using ControlRegister = m::BitReg<std::uint32_t,
  *                                   ConfigField,       // Bits 0-3
  *                                   m::DummyField<4>,  // Bits 4-7 (unused)
@@ -33,6 +29,7 @@
  * ControlRegister ctrl;
  * ctrl.set<ConfigField>(10);
  * ctrl.set<DataField>(255);
+ * auto config = ctrl.get<ConfigField>(); // Returns uint8_t
  */
 
 namespace m {
@@ -76,8 +73,7 @@ class BitReg {
   template <CBitField Field>
     requires CField<Field, Fields...>
   constexpr auto get() const {
-    constexpr auto field_info = getFieldInfo<Field, Fields...>();
-
+    constexpr auto field_info = getFieldInfo<Field>();
     return static_cast<decltype(field_info.default_value)>(
         (data_ >> field_info.offset) & field_info.field_mask);
   }
@@ -85,8 +81,14 @@ class BitReg {
   template <CBitField Field, typename Value>
     requires CField<Field, Fields...>
   constexpr void set(Value value) {
-    constexpr auto field_info = getFieldInfo<Field, Fields...>();
-    const StorageType masked_value = static_cast<StorageType>(value);
+    using FieldType = decltype(Field::default_value);
+    static_assert(
+        std::is_same_v<std::remove_cv_t<Value>, std::remove_cv_t<FieldType>>,
+        "Value type must exactly match field's default_value type");
+
+    constexpr auto field_info = getFieldInfo<Field>();
+    const StorageType masked_value =
+        static_cast<StorageType>(value) & field_info.field_mask;
 
     data_ = (data_ & ~field_info.register_mask) |
             (masked_value << field_info.offset);
@@ -117,20 +119,24 @@ class BitReg {
     static constexpr StorageType register_mask = field_mask << Offset;
   };
 
-  template <CBitField Field, CBitField FirstField, CBitField... RestFields>
+  // Более простая и понятная версия через variadic templates
+  template <CBitField Field>
   static constexpr auto getFieldInfo() {
-    if constexpr (std::is_same_v<Field, FirstField>) {
-      return FieldInfo<0, FirstField::size, FirstField::default_value>{};
-    } else if constexpr (sizeof...(RestFields) > 0) {
-      auto next_info = getFieldInfo<Field, RestFields...>();
-      return FieldInfo<FirstField::size + next_info.offset, next_info.size,
-                       next_info.default_value>{};
-    }
+    constexpr std::size_t offset = getFieldOffset<Field>();
+    return FieldInfo<offset, Field::size, Field::default_value>{};
+  }
+
+  template <CBitField Field>
+  static constexpr std::size_t getFieldOffset() {
+    std::size_t offset = 0;
+    ((offset += (std::is_same_v<Field, Fields> ? 0 : Fields::size)), ...);
+    return offset;
   }
 
   template <CBitField Field>
   constexpr void setFieldDefault() {
-    if constexpr (!std::is_same_v<Field, DummyField<Field::size>>) {
+    // Проверяем, не является ли поле DummyField через проверку типа
+    if constexpr (!std::is_base_of_v<DummyField<Field::size>, Field>) {
       if constexpr (Field::default_value != 0) {
         set<Field>(Field::default_value);
       }

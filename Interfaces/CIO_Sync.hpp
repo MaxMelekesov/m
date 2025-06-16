@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef CIO_ASYNC_HPP
-#define CIO_ASYNC_HPP
+#ifndef CIO_SYNC_HPP
+#define CIO_SYNC_HPP
 
 #include <Bps.hpp>
 #include <concepts>
@@ -19,17 +19,13 @@
 namespace m::c {
 
 template <typename T>
-concept CIO_Async =
+concept CIO_Sync =
     requires(T io, std::span<uint8_t> rx_buf, std::span<const uint8_t> tx_buf) {
-      { io.bytesToWrite() } -> std::same_as<std::size_t>;
-      { io.writeAsync(tx_buf) } -> std::same_as<bool>;
-      { io.abortWrite() } -> std::same_as<bool>;
-      { io.writeDone() } -> std::same_as<bool>;
+      requires requires { typename T::TimeType; };
 
-      { io.bytesAvailable() } -> std::same_as<std::size_t>;
-      { io.readAsync(rx_buf) } -> std::same_as<bool>;
-      { io.abortRead() } -> std::same_as<bool>;
-      { io.readDone() } -> std::same_as<bool>;
+      { io.write(tx_buf, typename T::TimeType{}) } -> std::same_as<bool>;
+
+      { io.read(rx_buf, typename T::TimeType{}) } -> std::same_as<bool>;
 
       requires CBps<std::remove_cvref_t<decltype(io.getBaudrate())>>;
       requires requires(
@@ -42,4 +38,4 @@ concept CIO_Async =
 
 }  // namespace m::c
 
-#endif  // CIO_ASYNC_HPP
+#endif  // CIO_SYNC_HPP

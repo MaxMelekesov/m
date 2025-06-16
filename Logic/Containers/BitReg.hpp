@@ -10,6 +10,7 @@
 #ifndef BITREG_HPP
 #define BITREG_HPP
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -53,25 +54,21 @@ template <typename T>
 concept CBitField = requires {
   T::size;
   T::default_value;
-  T::max_value;
-} && std::is_base_of_v<BitField<T::size, T, T::default_value>, T>;
+} && std::derived_from<T, BitField<T::size, T, T::default_value>>;
 
-template <typename Field, typename... Fields>
-concept CField = (std::is_same_v<Field, Fields> || ...);
-
-template <typename T>
-concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;
-
-template <CRegStorage Storage, CBitField... Fields>
-  requires(sizeof...(Fields) > 0)
+template <typename Storage, CBitField... Fields>
+  requires(sizeof...(Fields) > 0) && std::is_integral_v<Storage> &&
+          std::is_unsigned_v<Storage>
 class BitReg {
  public:
+  using StorageType = Storage;
+
   constexpr BitReg() : data_(0) { ((setFieldDefault<Fields>()), ...); }
 
   explicit constexpr BitReg(Storage initial_value) : data_(initial_value) {}
 
   template <CBitField Field>
-    requires CField<Field, Fields...>
+    requires(std::same_as<Field, Fields> || ...)
   constexpr auto get() const {
     constexpr auto field_info = getFieldInfo<Field>();
     return static_cast<decltype(field_info.default_value)>(
@@ -79,7 +76,7 @@ class BitReg {
   }
 
   template <CBitField Field, typename Value>
-    requires CField<Field, Fields...>
+    requires(std::same_as<Field, Fields> || ...)
   constexpr void set(Value value) {
     constexpr auto field_info = getFieldInfo<Field>();
     const Storage masked_value =

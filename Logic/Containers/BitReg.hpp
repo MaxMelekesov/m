@@ -17,20 +17,41 @@
 
 /* Example usage:
  *
- * struct ConfigField : public m::BitField<4, ConfigField, uint8_t(15)> {};
- * struct DataField : public m::BitField<8, DataField, uint8_t(0)> {};
+ * // Define bit fields
+ * struct ConfigField : public m::BitField<4, ConfigField, 15> {};  // 4 bits,
+ * default 15
+ * struct DataField : public m::BitField<8, DataField, 0> {}; // 8
+ * bits, default 0
+ * struct EnableBit : public m::BitField<1, EnableBit, 1> {}; // 1 bit, default
+ * 1
  *
- * using ControlRegister = m::BitReg<std::uint32_t,
- *                                   ConfigField,       // Bits 0-3
- *                                   m::DummyField<4>,  // Bits 4-7 (unused)
- *                                   DataField,         // Bits 8-15
- *                                   m::DummyField<16>  // Bits 16-31 (unused)
- *                                   >;
+ * // Create register using struct inheritance (recommended)
+ * struct ControlRegister : public m::BitReg<std::uint32_t,
+ *                                           ConfigField,       // Bits 0-3
+ *                                           m::DummyField<4>,  // Bits 4-7
+ *                                           DataField,         // Bits 8-15
+ *                                           EnableBit,         // Bit 16
+ *                                           m::DummyField<15>  // Bits 17-31
+ *                                           > {};
  *
- * ControlRegister ctrl;
- * ctrl.set<ConfigField>(10);
- * ctrl.set<DataField>(255);
- * auto config = ctrl.get<ConfigField>(); // Returns uint8_t
+ * // Alternative: using alias (but struct inheritance is preferred)
+ * using StatusRegister = m::BitReg<std::uint8_t,
+ *                                  m::BitField<4, struct StatusField, 5>,
+ *                                  m::DummyField<4>>;
+ *
+ * // Usage example:
+ * ControlRegister ctrl;                    // Default constructor sets defaults
+ * ctrl.set<ConfigField>(10);               // Set config field to 10
+ * ctrl.set<DataField>(255);                // Set data field to 255
+ * ctrl.set<EnableBit>(0);                  // Disable
+ *
+ * auto config = ctrl.get<ConfigField>();   // Returns 10
+ * auto data = ctrl.get<DataField>();       // Returns 255
+ * auto enabled = ctrl.get<EnableBit>();    // Returns 0
+ *
+ * std::uint32_t raw_value = ctrl.raw();    // Get raw register value
+ * ctrl.raw(0x12345678);                    // Set raw register value
+ * ctrl.reset();                            // Reset to default values
  */
 
 namespace m {
@@ -42,7 +63,7 @@ struct BitField {
   static constexpr auto default_value = DefaultValue;
   static constexpr auto max_value = (1ULL << Size);
 
-  static_assert(static_cast<std::uint64_t>(DefaultValue) < max_value,
+  static_assert(static_cast<uint64_t>(DefaultValue) < max_value,
                 "Default value exceeds bit field capacity");
 };
 

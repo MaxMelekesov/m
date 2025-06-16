@@ -81,11 +81,6 @@ class BitReg {
   template <CBitField Field, typename Value>
     requires CField<Field, Fields...>
   constexpr void set(Value value) {
-    using FieldType = decltype(Field::default_value);
-    static_assert(
-        std::is_same_v<std::remove_cv_t<Value>, std::remove_cv_t<FieldType>>,
-        "Value type must exactly match field's default_value type");
-
     constexpr auto field_info = getFieldInfo<Field>();
     const StorageType masked_value =
         static_cast<StorageType>(value) & field_info.field_mask;
@@ -119,7 +114,6 @@ class BitReg {
     static constexpr StorageType register_mask = field_mask << Offset;
   };
 
-  // Более простая и понятная версия через variadic templates
   template <CBitField Field>
   static constexpr auto getFieldInfo() {
     constexpr std::size_t offset = getFieldOffset<Field>();
@@ -135,7 +129,6 @@ class BitReg {
 
   template <CBitField Field>
   constexpr void setFieldDefault() {
-    // Проверяем, не является ли поле DummyField через проверку типа
     if constexpr (!std::is_base_of_v<DummyField<Field::size>, Field>) {
       if constexpr (Field::default_value != 0) {
         set<Field>(Field::default_value);

@@ -19,127 +19,111 @@ template <std::size_t Size, typename Derived>
   requires(Size > 0) && (Size <= 64)
 struct BitField {
   static constexpr std::size_t size = Size;
+  static constexpr auto max_value = Size == 64 ? ~0ULL : (1ULL << Size) - 1;
 };
 
 template <std::size_t Size>
   requires(Size > 0) && (Size <= 64)
-struct DummyField : public BitField<Size, DummyField<Size>> {};
+struct UnusedField : public BitField<Size, UnusedField<Size>> {};
 
 template <typename T>
-concept CBitField =
-    requires { T::size; } && std::is_base_of_v<BitField<T::size, T>, T>;
+concept CBitField = requires {
+  T::size;
+  T::max_value;
+} && std::is_base_of_v<BitField<T::size, T>, T>;
 
 template <typename T>
 concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;
 
 template <CRegStorage Storage, CBitField... Fields>
   requires(sizeof...(Fields) > 0)
-class RegBitMap {
+class BitReg {
  public:
   using StorageType = Storage;
 
-  static constexpr std::size_t total_bits = (Fields::size + ...);
-  static_assert(total_bits == sizeof(Storage) * 8,
-                "Total field bits must match storage size");
+  static constexpr std::size_t storage_bits = sizeof(StorageType) * 8;
 
-  static constexpr Storage non_dummy_mask_ = []() constexpr {
-    Storage mask = 0;
-    std::size_t offset = 0;
-    auto addFieldMask = [&](std::size_t field_size, bool is_dummy) {
-      if (!is_dummy) {
-        Storage field_mask = field_size == (sizeof(Storage) * 8)
-                                 ? ~Storage(0)
-                                 : (Storage(1) << field_size) - 1;
-        mask |= (field_mask << offset);
-      }
-      offset += field_size;
-    };
-    (addFieldMask(Fields::size,
-                  std::is_base_of_v<DummyField<Fields::size>, Fields>),
-     ...);
-    return mask;
-  }();
+  static consteval std::size_t sumFieldBits() {
+    return (Fields::size + ... + 0);
+  }
+
+  static_assert(
+      sumFieldBits() == storage_bits,
+      "BitReg: Total size of all fields must match storage type bit width");
+
+  constexpr BitReg() : data_(0) {}
+
+  explicit constexpr BitReg(Storage value) : data_(value & non_dummy_mask_) {}
 
   template <CBitField Field>
-  static constexpr Storage getField(Storage data) {
-    constexpr auto info = getFieldInfo<Field>();
-    return (data >> info.offset) & info.mask;
+    requires(std::is_same_v<Field, Fields> || ...)
+  constexpr auto get() const {
+    constexpr auto field_info = getFieldInfo<Field>();
+    return (data_ >> field_info.offset) & field_info.field_mask;
   }
 
   template <CBitField Field, typename Value>
-  static constexpr Storage setField(Storage data, Value value) {
-    constexpr auto info = getFieldInfo<Field>();
-    constexpr Storage reg_mask = info.mask << info.offset;
-    return (data & ~reg_mask) |
-           ((static_cast<Storage>(value) & info.mask) << info.offset);
+    requires(std::is_same_v<Field, Fields> || ...)
+  constexpr void set(Value value) {
+    constexpr auto field_info = getFieldInfo<Field>();
+    const Storage masked_value =
+        static_cast<Storage>(value) & field_info.field_mask;
+
+    data_ = (data_ & ~field_info.register_mask) |
+            (masked_value << field_info.offset);
   }
+
+  constexpr Storage getRaw() const { return data_ & non_dummy_mask_; }
+
+  constexpr void setRaw(Storage value) { data_ = value & non_dummy_mask_; }
 
  private:
-  template <CBitField Field>
-  static consteval auto getFieldInfo() {
-    constexpr std::size_t offset = []() consteval {
-      std::size_t off = 0;
-      bool found = false;
-      ((found                                     ? 0
-        : (found = std::is_same_v<Field, Fields>) ? 0
-                                                  : (off += Fields::size, 0)),
-       ...);
-      return off;
-    }();
-    constexpr Storage mask = Field::size == (sizeof(Storage) * 8)
-                                 ? ~Storage(0)
-                                 : (Storage(1) << Field::size) - 1;
+  Storage data_;
 
-    struct FieldInfo {
-      std::size_t offset;
-      Storage mask;
-    };
-    return FieldInfo{offset, mask};
+  static constexpr std::size_t total_size = (Fields::size + ...);
+  static_assert(total_size <= sizeof(Storage) * 8,
+                "Total field size exceeds storage type capacity");
+
+  template <std::size_t Offset, std::size_t Size>
+  struct FieldInfo {
+    static constexpr std::size_t offset = Offset;
+    static constexpr std::size_t size = Size;
+    static constexpr Storage field_mask =
+        Size == (sizeof(Storage) * 8) ? ~Storage(0) : (Storage(1) << Size) - 1;
+    static constexpr Storage register_mask = field_mask << Offset;
+  };
+
+  template <CBitField Field>
+  static constexpr auto getFieldInfo() {
+    constexpr std::size_t offset = getFieldOffset<Field>();
+    return FieldInfo<offset, Field::size>{};
   }
+
+  template <CBitField Field>
+  static constexpr std::size_t getFieldOffset() {
+    std::size_t offset = 0;
+    bool found = false;
+    ((found ? (void)0
+            : (std::is_same_v<Field, Fields>
+                   ? (found = true, void(0))
+                   : (offset += Fields::size, void(0)))),
+     ...);
+    return offset;
+  }
+
+  // Compile-time mask for all non-dummy fields
+  static constexpr Storage non_dummy_mask_ = []() constexpr {
+    Storage mask = 0;
+    std::size_t offset = 0;
+    ((mask |= (!std::is_base_of_v<UnusedField<Fields::size>, Fields>
+                   ? (((Storage(1) << Fields::size) - 1) << offset)
+                   : 0),
+      offset += Fields::size),
+     ...);
+    return mask;
+  }();
 };
 
-template <typename T>
-concept CRegBitMap = requires {
-  typename T::StorageType;
-  T::non_dummy_mask_;
-  T::total_bits;
-} && CRegStorage<typename T::StorageType>;
-
-// Concept for register info type
-template <typename T>
-concept CRegInfo = requires { typename T::BitFieldsOrder; } &&
-                   CRegBitMap<typename T::BitFieldsOrder>;
-
-template <CRegInfo InfoT>
-class Reg {
-  using BitFieldsOrder = typename InfoT::BitFieldsOrder;
-  using StorageType = typename BitFieldsOrder::StorageType;
-
- public:
-  constexpr Reg() = default;
-  explicit constexpr Reg(StorageType value)
-      : data_(value & BitFieldsOrder::non_dummy_mask_) {}
-
-  template <CBitField Field>
-  constexpr StorageType get() const {
-    return BitFieldsOrder::template getField<Field>(data_);
-  }
-
-  template <CBitField Field>
-  constexpr void set(auto value) {
-    data_ = BitFieldsOrder::template setField<Field>(data_, value);
-  }
-
-  constexpr StorageType getRaw() const {
-    return data_ & BitFieldsOrder::non_dummy_mask_;
-  }
-  constexpr void setRaw(StorageType value) {
-    data_ = value & BitFieldsOrder::non_dummy_mask_;
-  }
-
- private:
-  StorageType data_{0};
-};
 }  // namespace m
 
 #endif  // BITREG_HPP

@@ -11,13 +11,13 @@
 #define FDC1004_HPP
 
 #include <BitReg.hpp>
-#include <CIO_Sync.hpp>
+#include <CIO_Async.hpp>
 #include <Ms.hpp>
 #include <RegMap.hpp>
 
 namespace m::ic {
 
-template <m::c::CIO_Sync Io>
+template <m::c::CIO_Async Io>
 class Fdc1004 {
  public:
   Fdc1004(Io& io) : io_(io) {}
@@ -104,6 +104,8 @@ class Fdc1004 {
       }
     }
 
+    FdcConf getImpl(uint8_t address) { return FdcConf{}; }
+
     template <typename RegisterType>
     bool setImpl(uint8_t address, const RegisterType& reg) {
       return false;
@@ -116,7 +118,7 @@ class Fdc1004 {
                      m::RegInfo<0x0B, ConfMeas4>, m::RegInfo<0x0C, FdcConf>>;
   };
 
-  Fdc1004_Regs ic_map_;
+  Fdc1004_Regs ic_map_{io_};
 };
 }  // namespace m::ic
 

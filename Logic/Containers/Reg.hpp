@@ -19,7 +19,7 @@ template <std::size_t Size, typename Derived>
   requires(Size > 0) && (Size <= 64)
 struct BitField {
   static constexpr std::size_t size = Size;
-  static constexpr auto max_value = (1ULL << Size) - 1;
+  static constexpr auto max_value = Size == 64 ? ~0ULL : (1ULL << Size) - 1;
 };
 
 template <std::size_t Size>
@@ -48,10 +48,17 @@ class RegBitMap {
   static constexpr Storage non_dummy_mask_ = []() constexpr {
     Storage mask = 0;
     std::size_t offset = 0;
-    ((mask |= (!std::is_base_of_v<DummyField<Fields::size>, Fields>
-                   ? (((Storage(1) << Fields::size) - 1) << offset)
-                   : 0),
-      offset += Fields::size),
+    auto addFieldMask = [&](std::size_t field_size, bool is_dummy) {
+      if (!is_dummy) {
+        Storage field_mask = field_size == (sizeof(Storage) * 8)
+                                 ? ~Storage(0)
+                                 : (Storage(1) << field_size) - 1;
+        mask |= (field_mask << offset);
+      }
+      offset += field_size;
+    };
+    (addFieldMask(Fields::size,
+                  std::is_base_of_v<DummyField<Fields::size>, Fields>),
      ...);
     return mask;
   }();
@@ -75,10 +82,16 @@ class RegBitMap {
   static consteval auto getFieldInfo() {
     constexpr std::size_t offset = []() consteval {
       std::size_t off = 0;
-      ((off += (std::is_same_v<Field, Fields> ? 0 : Fields::size)), ...);
+      bool found = false;
+      ((found                                     ? 0
+        : (found = std::is_same_v<Field, Fields>) ? 0
+                                                  : (off += Fields::size, 0)),
+       ...);
       return off;
     }();
-    constexpr Storage mask = (Storage(1) << Field::size) - 1;
+    constexpr Storage mask = Field::size == (sizeof(Storage) * 8)
+                                 ? ~Storage(0)
+                                 : (Storage(1) << Field::size) - 1;
 
     struct FieldInfo {
       std::size_t first;

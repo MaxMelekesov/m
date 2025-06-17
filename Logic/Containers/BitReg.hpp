@@ -60,6 +60,16 @@ class BitReg {
  public:
   using StorageType = Storage;
 
+  static constexpr std::size_t storage_bits = sizeof(StorageType) * 8;
+
+  static consteval std::size_t sumFieldBits() {
+    return (Fields::size + ... + 0);
+  }
+
+  static_assert(
+      sumFieldBits() == storage_bits,
+      "BitReg: Total size of all fields must match storage type bit width");
+
   constexpr BitReg() : data_(0) {}
 
   explicit constexpr BitReg(Storage value) : data_(value & non_dummy_mask_) {}

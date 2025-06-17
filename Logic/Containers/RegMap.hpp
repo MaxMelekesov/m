@@ -7,8 +7,8 @@
  *
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
-#ifndef REGISTER_MAP_HPP
-#define REGISTER_MAP_HPP
+#ifndef REG_MAP_HPP
+#define REG_MAP_HPP
 
 #include <concepts>
 #include <type_traits>
@@ -27,30 +27,13 @@ concept CRegInfo = requires {
   typename T::Type;
 };
 
-template <typename Derived, typename AddressType, CRegInfo... RegInfos>
+template <typename AddressType, CRegInfo... RegInfos>
   requires std::is_integral_v<AddressType> && std::is_unsigned_v<AddressType>
 class RegMap {
  public:
   template <typename RegisterType>
     requires(std::same_as<RegisterType, typename RegInfos::Type> || ...)
-  RegisterType get() {
-    constexpr AddressType address = getRegisterAddress<RegisterType>();
-
-    return static_cast<Derived*>(this)->template getImpl<RegisterType>(address);
-  }
-
-  template <typename RegisterType>
-    requires(std::same_as<RegisterType, typename RegInfos::Type> || ...)
-  bool set(const RegisterType& reg) {
-    constexpr AddressType address = getRegisterAddress<RegisterType>();
-
-    return static_cast<Derived*>(this)->template setImpl<RegisterType>(address,
-                                                                       reg);
-  }
-
- private:
-  template <typename RegisterType>
-  static constexpr AddressType getRegisterAddress() {
+  static constexpr AddressType getAddress() {
     AddressType address{};
     ((address = std::is_same_v<RegisterType, typename RegInfos::Type>
                     ? static_cast<AddressType>(RegInfos::address)
@@ -62,4 +45,4 @@ class RegMap {
 
 }  // namespace m
 
-#endif  // REGISTER_MAP_HPP
+#endif  // REG_MAP_HPP

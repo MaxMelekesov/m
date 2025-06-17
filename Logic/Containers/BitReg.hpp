@@ -10,86 +10,62 @@
 #ifndef BITREG_HPP
 #define BITREG_HPP
 
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
 /* Example usage:
  *
- * // Define bit fields
- * struct ConfigField : public m::BitField<4, ConfigField, 15> {};  // 4 bits,
- * default 15
- * struct DataField : public m::BitField<8, DataField, 0> {}; // 8
- * bits, default 0
- * struct EnableBit : public m::BitField<1, EnableBit, 1> {}; // 1 bit, default
- * 1
+ * struct ConfigField : public m::BitField<4, ConfigField> {};
+ * struct DataField : public m::BitField<8, DataField> {};
  *
- * // Create register using struct inheritance (recommended)
  * struct ControlRegister : public m::BitReg<std::uint32_t,
- *                                           ConfigField,       // Bits 0-3
- *                                           m::DummyField<4>,  // Bits 4-7
- *                                           DataField,         // Bits 8-15
- *                                           EnableBit,         // Bit 16
- *                                           m::DummyField<15>  // Bits 17-31
- *                                           > {};
+ *                                   ConfigField,       // Bits 0-3
+ *                                   m::DummyField<4>,  // Bits 4-7 (unused)
+ *                                   DataField,         // Bits 8-15
+ *                                   m::DummyField<16>  // Bits 16-31 (unused)
+ *                                   >{};
  *
- * // Alternative: using alias (but struct inheritance is preferred)
- * using StatusRegister = m::BitReg<std::uint8_t,
- *                                  m::BitField<4, struct StatusField, 5>,
- *                                  m::DummyField<4>>;
- *
- * // Usage example:
- * ControlRegister ctrl;                    // Default constructor sets defaults
- * ctrl.set<ConfigField>(10);               // Set config field to 10
- * ctrl.set<DataField>(255);                // Set data field to 255
- * ctrl.set<EnableBit>(0);                  // Disable
- *
- * auto config = ctrl.get<ConfigField>();   // Returns 10
- * auto data = ctrl.get<DataField>();       // Returns 255
- * auto enabled = ctrl.get<EnableBit>();    // Returns 0
- *
- * std::uint32_t raw_value = ctrl.raw();    // Get raw register value
- * ctrl.raw(0x12345678);                    // Set raw register value
- * ctrl.reset();                            // Reset to default values
+ * ControlRegister ctrl;
+ * ctrl.set<ConfigField>(10);
+ * ctrl.set<DataField>(255);
+ * auto config = ctrl.get<ConfigField>(); // Returns uint8_t
  */
 
 namespace m {
 
-template <std::size_t Size, typename Derived, auto DefaultValue = 0>
+template <std::size_t Size, typename Derived>
   requires(Size > 0) && (Size <= 64)
 struct BitField {
   static constexpr std::size_t size = Size;
-  static constexpr auto default_value = DefaultValue;
-  static constexpr auto max_value = (1ULL << Size);
-
-  static_assert(static_cast<uint64_t>(DefaultValue) < max_value,
-                "Default value exceeds bit field capacity");
+  static constexpr auto max_value = (1ULL << Size) - 1;
 };
 
 template <std::size_t Size>
   requires(Size > 0) && (Size <= 64)
-struct DummyField : public BitField<Size, DummyField<Size>, 0> {};
+struct DummyField : public BitField<Size, DummyField<Size>> {};
 
 template <typename T>
 concept CBitField = requires {
   T::size;
-  T::default_value;
-} && std::derived_from<T, BitField<T::size, T, T::default_value>>;
+  T::max_value;
+} && std::is_base_of_v<BitField<T::size, T>, T>;
 
-template <typename Storage, CBitField... Fields>
-  requires(sizeof...(Fields) > 0) && std::is_integral_v<Storage> &&
-          std::is_unsigned_v<Storage>
+template <typename T>
+concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;
+
+template <CRegStorage Storage, CBitField... Fields>
+  requires(sizeof...(Fields) > 0)
 class BitReg {
  public:
   using StorageType = Storage;
 
-  constexpr BitReg() : data_(0) { ((setFieldDefault<Fields>()), ...); }
+  constexpr BitReg() : data_(0) {}
 
-  explicit constexpr BitReg(Storage initial_value) : data_(initial_value) {}
+  explicit constexpr BitReg(Storage value) : data_(value & non_dummy_mask_) {}
 
   template <CBitField Field>
-    requires(std::same_as<Field, Fields> || ...)
+    requires(std::is_same_v<Field, Fields> || ...)
   constexpr auto get() const {
     constexpr auto field_info = getFieldInfo<Field>();
     return static_cast<decltype(field_info.default_value)>(
@@ -97,7 +73,7 @@ class BitReg {
   }
 
   template <CBitField Field, typename Value>
-    requires(std::same_as<Field, Fields> || ...)
+    requires(std::is_same_v<Field, Fields> || ...)
   constexpr void set(Value value) {
     constexpr auto field_info = getFieldInfo<Field>();
     const Storage masked_value =
@@ -107,14 +83,9 @@ class BitReg {
             (masked_value << field_info.offset);
   }
 
-  constexpr Storage raw() const { return data_; }
+  constexpr Storage getRaw() const { return data_ & non_dummy_mask_; }
 
-  constexpr void raw(Storage value) { data_ = value; }
-
-  constexpr void reset() {
-    data_ = 0;
-    ((setFieldDefault<Fields>()), ...);
-  }
+  constexpr void setRaw(Storage value) { data_ = value & non_dummy_mask_; }
 
  private:
   Storage data_;
@@ -145,14 +116,17 @@ class BitReg {
     return offset;
   }
 
-  template <CBitField Field>
-  constexpr void setFieldDefault() {
-    if constexpr (!std::is_base_of_v<DummyField<Field::size>, Field>) {
-      if constexpr (Field::default_value != 0) {
-        set<Field>(Field::default_value);
-      }
-    }
-  }
+  // Compile-time mask for all non-dummy fields
+  static constexpr Storage non_dummy_mask_ = []() constexpr {
+    Storage mask = 0;
+    std::size_t offset = 0;
+    ((mask |= (!std::is_base_of_v<DummyField<Fields::size>, Fields>
+                   ? (((Storage(1) << Fields::size) - 1) << offset)
+                   : 0),
+      offset += Fields::size),
+     ...);
+    return mask;
+  }();
 };
 
 }  // namespace m

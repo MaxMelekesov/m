@@ -19,7 +19,6 @@ template <std::size_t Size, typename Derived>
   requires(Size > 0) && (Size <= 64)
 struct BitField {
   static constexpr std::size_t size = Size;
-  static constexpr auto max_value = Size == 64 ? ~0ULL : (1ULL << Size) - 1;
 };
 
 template <std::size_t Size>
@@ -27,10 +26,8 @@ template <std::size_t Size>
 struct DummyField : public BitField<Size, DummyField<Size>> {};
 
 template <typename T>
-concept CBitField = requires {
-  T::size;
-  T::max_value;
-} && std::is_base_of_v<BitField<T::size, T>, T>;
+concept CBitField =
+    requires { T::size; } && std::is_base_of_v<BitField<T::size, T>, T>;
 
 template <typename T>
 concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;

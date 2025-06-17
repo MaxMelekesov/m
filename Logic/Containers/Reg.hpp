@@ -63,15 +63,15 @@ class RegBitMap {
   template <CBitField Field>
   static constexpr Storage getField(Storage data) {
     constexpr auto info = getFieldInfo<Field>();
-    return (data >> info.first) & info.second;
+    return (data >> info.offset) & info.mask;
   }
 
   template <CBitField Field, typename Value>
   static constexpr Storage setField(Storage data, Value value) {
     constexpr auto info = getFieldInfo<Field>();
-    constexpr Storage reg_mask = info.second << info.first;
+    constexpr Storage reg_mask = info.mask << info.offset;
     return (data & ~reg_mask) |
-           ((static_cast<Storage>(value) & info.second) << info.first);
+           ((static_cast<Storage>(value) & info.mask) << info.offset);
   }
 
  private:
@@ -91,8 +91,8 @@ class RegBitMap {
                                  : (Storage(1) << Field::size) - 1;
 
     struct FieldInfo {
-      std::size_t first;
-      Storage second;
+      std::size_t offset;
+      Storage mask;
     };
     return FieldInfo{offset, mask};
   }

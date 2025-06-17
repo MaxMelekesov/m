@@ -21,11 +21,9 @@ namespace m::c {
 template <typename T>
 concept CIO_Sync =
     requires(T io, std::span<uint8_t> rx_buf, std::span<const uint8_t> tx_buf) {
-      requires requires { typename T::TimeType; };
+      { io.write(tx_buf) } -> std::same_as<bool>;
 
-      { io.write(tx_buf, typename T::TimeType{}) } -> std::same_as<bool>;
-
-      { io.read(rx_buf, typename T::TimeType{}) } -> std::same_as<bool>;
+      { io.read(rx_buf) } -> std::same_as<bool>;
 
       requires CBps<std::remove_cvref_t<decltype(io.getBaudrate())>>;
       requires requires(

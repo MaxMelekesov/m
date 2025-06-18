@@ -16,8 +16,8 @@
 /* Usage example:
 
   struct CtrlRegMap {
-    struct ConfigField : public m::BitField<4, ConfigField> {};
-    struct DataField : public m::BitField<8, DataField> {};
+    struct ConfigField : public m::BitField<ConfigField, 4> {};
+    struct DataField : public m::BitField<DataField, 8> {};
   };
 
   struct CtrlReg : public m::Reg<std::uint32_t, CtrlRegMap,
@@ -36,7 +36,7 @@
 
 namespace m {
 
-template <std::size_t Size, typename Derived>
+template <typename Derived, std::size_t Size>
   requires(Size > 0) && (Size <= 64)
 struct BitField {
   static constexpr std::size_t size = Size;
@@ -45,13 +45,13 @@ struct BitField {
 
 template <std::size_t Size>
   requires(Size > 0) && (Size <= 64)
-struct UnusedField : public BitField<Size, UnusedField<Size>> {};
+struct UnusedField : public BitField<UnusedField<Size>, Size> {};
 
 template <typename T>
 concept CBitField = requires {
   T::size;
   T::max_value;
-} && std::is_base_of_v<BitField<T::size, T>, T>;
+} && std::is_base_of_v<BitField<T, T::size>, T>;
 
 template <typename T>
 concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;

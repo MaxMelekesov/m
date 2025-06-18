@@ -13,6 +13,27 @@
 #include <cstddef>
 #include <type_traits>
 
+/* Usage example:
+
+  struct CtrlRegMap {
+    struct ConfigField : public m::BitField<4, ConfigField> {};
+    struct DataField : public m::BitField<8, DataField> {};
+  };
+
+  struct CtrlReg : public m::Reg<std::uint32_t, CtrlRegMap,
+                                 CtrlRegMap::ConfigField,  // Bits 0-3
+                                 m::UnusedField<4>,        // Bits 4-7 (unused)
+                                 CtrlRegMap::DataField,    // Bits 8-15
+                                 m::UnusedField<16>  // Bits 16-31 (unused)
+                                 > {};
+
+  CtrlReg ctrl;
+  ctrl.set<CtrlReg::Map::ConfigField>(10);
+  ctrl.set<CtrlReg::Map::DataField>(255);
+  auto config = ctrl.get<CtrlReg::Map::ConfigField>();
+  auto data = ctrl.get<CtrlReg::Map::DataField>();
+*/
+
 namespace m {
 
 template <std::size_t Size, typename Derived>
@@ -35,25 +56,16 @@ concept CBitField = requires {
 template <typename T>
 concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;
 
-template <CRegStorage Storage, CBitField... Fields>
+template <CRegStorage Storage, typename FieldMap, CBitField... Fields>
   requires(sizeof...(Fields) > 0)
-class BitReg {
+class Reg {
  public:
   using StorageType = Storage;
+  using Map = FieldMap;
 
-  static constexpr std::size_t storage_bits = sizeof(StorageType) * 8;
+  constexpr Reg() : data_(0) {}
 
-  static consteval std::size_t sumFieldBits() {
-    return (Fields::size + ... + 0);
-  }
-
-  static_assert(
-      sumFieldBits() == storage_bits,
-      "BitReg: Total size of all fields must match storage type bit width");
-
-  constexpr BitReg() : data_(0) {}
-
-  explicit constexpr BitReg(Storage value) : data_(value & non_dummy_mask_) {}
+  explicit constexpr Reg(Storage value) : data_(value & non_dummy_mask_) {}
 
   template <CBitField Field>
     requires(std::is_same_v<Field, Fields> || ...)

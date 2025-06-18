@@ -10,17 +10,108 @@
 #ifndef FDC1004_HPP
 #define FDC1004_HPP
 
-#include <BitReg.hpp>
 #include <CIO_Async.hpp>
+#include <CTime.hpp>
+#include <Fsm_v4.hpp>
 #include <Ms.hpp>
+#include <Reg.hpp>
 #include <RegMap.hpp>
+#include <Timeout.hpp>
+#include <cstdint>
+#include <optional>
 
-namespace m::ic {
+#include "Fsm.hpp"
 
-template <m::c::CIO_Async Io>
-class Fdc1004 {
+namespace m::ic::fdc1004 {
+
+struct MeasMap {
+  struct MeasMsbField : public m::BitField<MeasMsbField, 16> {};
+  struct MeasLsbField : public m::BitField<MeasLsbField, 8> {};
+};
+
+struct Meas1 : public m::Reg<uint32_t, MeasMap, MeasMap::MeasMsbField,
+                             MeasMap::MeasLsbField, m::UnusedField<8>> {};
+struct Meas2 : public m::Reg<uint32_t, MeasMap, MeasMap::MeasMsbField,
+                             MeasMap::MeasLsbField, m::UnusedField<8>> {};
+struct Meas3 : public m::Reg<uint32_t, MeasMap, MeasMap::MeasMsbField,
+                             MeasMap::MeasLsbField, m::UnusedField<8>> {};
+struct Meas4 : public m::Reg<uint32_t, MeasMap, MeasMap::MeasMsbField,
+                             MeasMap::MeasLsbField, m::UnusedField<8>> {};
+
+struct ConfMap {
+  struct CapdacField : public m::BitField<CapdacField, 5> {};
+  struct ChbField : public m::BitField<ChbField, 3> {};
+  struct ChaField : public m::BitField<ChaField, 3> {};
+};
+
+struct ConfMeas1
+    : public m::Reg<uint16_t, ConfMap, m::UnusedField<5>, ConfMap::CapdacField,
+                    ConfMap::ChbField, ConfMap::ChaField> {};
+struct ConfMeas2
+    : public m::Reg<uint16_t, ConfMap, m::UnusedField<5>, ConfMap::CapdacField,
+                    ConfMap::ChbField, ConfMap::ChaField> {};
+struct ConfMeas3
+    : public m::Reg<uint16_t, ConfMap, m::UnusedField<5>, ConfMap::CapdacField,
+                    ConfMap::ChbField, ConfMap::ChaField> {};
+struct ConfMeas4
+    : public m::Reg<uint16_t, ConfMap, m::UnusedField<5>, ConfMap::CapdacField,
+                    ConfMap::ChbField, ConfMap::ChaField> {};
+
+struct FdcMap {
+  struct Done4Field : public m::BitField<Done4Field, 1> {};
+  struct Done3Field : public m::BitField<Done3Field, 1> {};
+  struct Done2Field : public m::BitField<Done2Field, 1> {};
+  struct Done1Field : public m::BitField<Done1Field, 1> {};
+  struct Meas4Field : public m::BitField<Meas4Field, 1> {};
+  struct Meas3Field : public m::BitField<Meas3Field, 1> {};
+  struct Meas2Field : public m::BitField<Meas2Field, 1> {};
+  struct Meas1Field : public m::BitField<Meas1Field, 1> {};
+  struct RepeatField : public m::BitField<RepeatField, 1> {};
+  struct RateField : public m::BitField<RateField, 2> {};
+  struct ResetField : public m::BitField<ResetField, 1> {};
+};
+
+struct FdcConf
+    : public m::Reg<uint16_t, FdcMap, FdcMap::Done4Field, FdcMap::Done3Field,
+                    FdcMap::Done2Field, FdcMap::Done1Field, FdcMap::Meas4Field,
+                    FdcMap::Meas3Field, FdcMap::Meas2Field, FdcMap::Meas1Field,
+                    FdcMap::RepeatField, m::UnusedField<1>, FdcMap::RateField,
+                    m::UnusedField<3>, FdcMap::ResetField> {};
+
+struct Fdc1004Map
+    : public m::RegMap<uint8_t, m::RegInfo<0x00, Meas1>,
+                       m::RegInfo<0x02, Meas2>, m::RegInfo<0x04, Meas3>,
+                       m::RegInfo<0x06, Meas4>, m::RegInfo<0x08, ConfMeas1>,
+                       m::RegInfo<0x09, ConfMeas2>, m::RegInfo<0x0A, ConfMeas3>,
+                       m::RegInfo<0x0B, ConfMeas4>, m::RegInfo<0x0C, FdcConf>> {
+
+};
+
+namespace {
+struct Idle : m::State {};
+struct Check : m::State {};
+struct WaitFdcFlag : m::State {};
+struct WaitMeas : m::State {};
+
+struct Start : m::Event {};
+struct Stop : m::Event {};
+struct NotReady : m::Event {};
+
+}  // namespace
+
+template <m::c::CMs TimeUnit, m::c::CTime<TimeUnit> Time, m::c::CIO_Async Io>
+class Fdc1004 : public m::Fsm_v4<Fdc1004<TimeUnit, Time, Io>, Idle,
+                                 m::Transition<Idle, Start, Check>,
+
+                                 m::Transition<Check, Stop, Idle>,
+                                 m::Transition<Check, Start, WaitFdcFlag>,
+
+                                 m::Transition<WaitFdcFlag, NotReady, Check>,
+                                 m::Transition<WaitFdcFlag, Start, WaitMeas>,
+
+                                 m::Transition<WaitMeas, Start, Check>> {
  public:
-  Fdc1004(Io& io) : io_(io) {}
+  Fdc1004(Time& time, Io& io) : time_(time), io_(io) {}
 
   enum class Cha : uint8_t { Cin1 = 0, Cin2, Cin3, Cin4 };
   enum class Chb : uint8_t {
@@ -33,330 +124,205 @@ class Fdc1004 {
   };
   enum class Rate : uint8_t { R_100Sps = 1, R_200Sps, R_400Sps };
 
- private:
-  Io& io_;
+  bool setMeas1(Cha cha, Chb chb, uint8_t capdac) {
+    meas_conf_.set<ConfMeas1::Map::ChaField>(static_cast<uint8_t>(cha));
+    meas_conf_.set<ConfMeas1::Map::ChbField>(static_cast<uint8_t>(chb));
+    meas_conf_.set<ConfMeas1::Map::CapdacField>(capdac);
 
-  struct MeasMsbField : public m::BitField<16, MeasMsbField> {};
-  struct MeasLsbField : public m::BitField<8, MeasLsbField> {};
+    return writeReg(map_.getAddress<ConfMeas1>(), meas_conf_.getRaw());
+  }
 
-  struct Meas1
-      : public m::BitReg<uint32_t, MeasMsbField, MeasLsbField, DummyField<8>> {
-  };
-  struct Meas2
-      : public m::BitReg<uint32_t, MeasMsbField, MeasLsbField, DummyField<8>> {
-  };
-  struct Meas3
-      : public m::BitReg<uint32_t, MeasMsbField, MeasLsbField, DummyField<8>> {
-  };
-  struct Meas4
-      : public m::BitReg<uint32_t, MeasMsbField, MeasLsbField, DummyField<8>> {
-  };
+  bool setMode(Rate rate, bool repeat) {
+    fdc_conf_.set<FdcConf::Map::RateField>(static_cast<uint8_t>(rate));
+    fdc_conf_.set<FdcConf::Map::RepeatField>(repeat);
+    fdc_conf_.set<FdcConf::Map::Meas1Field>(1);
 
-  struct ChaField : public m::BitField<3, ChaField> {};
-  struct ChbField : public m::BitField<3, ChbField> {};
-  struct CapdacField : public m::BitField<3, CapdacField> {};
+    return writeReg(map_.getAddress<FdcConf>(), fdc_conf_.getRaw());
+  }
 
-  struct ConfMeas1 : public m::BitReg<uint16_t, DummyField<5>, CapdacField,
-                                      ChbField, ChaField> {};
-  struct ConfMeas2 : public m::BitReg<uint16_t, DummyField<5>, CapdacField,
-                                      ChbField, ChaField> {};
-  struct ConfMeas3 : public m::BitReg<uint16_t, DummyField<5>, CapdacField,
-                                      ChbField, ChaField> {};
-  struct ConfMeas4 : public m::BitReg<uint16_t, DummyField<5>, CapdacField,
-                                      ChbField, ChaField> {};
-
-  struct Done4Field : public m::BitField<1, Done4Field> {};
-  struct Done3Field : public m::BitField<1, Done3Field> {};
-  struct Done2Field : public m::BitField<1, Done2Field> {};
-  struct Done1Field : public m::BitField<1, Done1Field> {};
-  struct Meas4Field : public m::BitField<1, Meas4Field> {};
-  struct Meas3Field : public m::BitField<1, Meas3Field> {};
-  struct Meas2Field : public m::BitField<1, Meas2Field> {};
-  struct Meas1Field : public m::BitField<1, Meas1Field> {};
-  struct RepeatField : public m::BitField<1, RepeatField> {};
-  struct RateField : public m::BitField<2, RateField> {};
-
-  struct FdcConf
-      : public m::BitReg<uint16_t, Done4Field, Done3Field, Done2Field,
-                         Done1Field, Meas4Field, Meas3Field, Meas2Field,
-                         Meas1Field, RepeatField, m::DummyField<1>, RateField> {
-  };
-
-  class Fdc1004_Regs
-      : public m::RegMap<
-            Fdc1004_Regs, uint8_t, m::RegInfo<0x00, Meas1>,
-            m::RegInfo<0x02, Meas2>, m::RegInfo<0x04, Meas3>,
-            m::RegInfo<0x06, Meas4>, m::RegInfo<0x08, ConfMeas1>,
-            m::RegInfo<0x09, ConfMeas2>, m::RegInfo<0x0A, ConfMeas3>,
-            m::RegInfo<0x0B, ConfMeas4>, m::RegInfo<0x0C, FdcConf>> {
-   public:
-    Fdc1004_Regs(Io& io) : io_(io) {}
-
-   private:
-    Io& io_;
-
-    template <typename RegType>
-    RegType getImpl(uint8_t address) {
-      if constexpr (sizeof(RegType) == 4) {
-        RegType{};
-      } else {
-        return RegType{};
-      }
+  bool enableMeas(bool value) {
+    if (!value) {
+      fdc_conf_.set<FdcConf::Map::RepeatField>(0);
     }
+    fdc_conf_.set<FdcConf::Map::Meas1Field>(value);
+    return writeReg(map_.getAddress<FdcConf>(), fdc_conf_.getRaw());
+  }
 
-    FdcConf getImpl(uint8_t address) { return FdcConf{}; }
+  bool writeReg(uint8_t addr, uint16_t reg) {
+    std::array<uint8_t, 4> buf;
+    buf[0] = Addr;
+    buf[1] = addr;
+    buf[2] = static_cast<uint8_t>(reg >> 8);
+    buf[3] = static_cast<uint8_t>(reg);
 
-    template <typename RegisterType>
-    bool setImpl(uint8_t address, const RegisterType& reg) {
+    if (!io_.writeAsync(buf)) return false;
+
+    if (!timeout_.execWithTimeout(
+            [&]() { return io_.writeDone(); },
+            buf.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
+                TimeUnit{5})) {
       return false;
     }
 
-    friend m::RegMap<Fdc1004_Regs, uint8_t, m::RegInfo<0x00, Meas1>,
-                     m::RegInfo<0x02, Meas2>, m::RegInfo<0x04, Meas3>,
-                     m::RegInfo<0x06, Meas4>, m::RegInfo<0x08, ConfMeas1>,
-                     m::RegInfo<0x09, ConfMeas2>, m::RegInfo<0x0A, ConfMeas3>,
-                     m::RegInfo<0x0B, ConfMeas4>, m::RegInfo<0x0C, FdcConf>>;
-  };
+    return true;
+  }
 
-  Fdc1004_Regs ic_map_{io_};
+  std::optional<uint16_t> readReg(uint8_t addr) {
+    std::array<uint8_t, 5> buf;
+    buf[0] = Addr;
+    buf[1] = addr;
+    buf[2] = Addr;
+    buf[3] = 0;
+    buf[4] = 0;
+
+    if (!io_.readAsync(buf)) return std::nullopt;
+
+    if (!timeout_.execWithTimeout(
+            [&]() { return io_.readDone(); },
+            buf.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
+                TimeUnit{5})) {
+      return std::nullopt;
+    }
+
+    uint16_t reg = (static_cast<uint16_t>(buf[3]) << 8) | buf[4];
+    return reg;
+  }
+
+  bool fillBuf(std::span<uint32_t> buf) {
+    buf_ = buf;
+    if (!enableMeas(1)) return false;
+
+    start_flag_ = true;
+
+    return true;
+  }
+
+  void handle() { this->checkEvents(); }
+
+ private:
+  Time& time_;
+  Io& io_;
+
+  constexpr static uint8_t Addr = 0x50;
+
+  Fdc1004Map map_;
+  ConfMeas1 meas_conf_{0x1C'00};
+  FdcConf fdc_conf_;
+
+  m::Timeout<TimeUnit> timeout_{time_};
+
+  std::span<uint32_t> buf_;
+
+  std::array<uint8_t, 7> reg_buf_;
+
+  bool readRegAsync(uint8_t addr) {
+    reg_buf_[0] = Addr;
+    reg_buf_[1] = addr;
+    reg_buf_[2] = Addr;
+    reg_buf_[3] = 0;
+    reg_buf_[4] = 0;
+
+    auto span = std::span<uint8_t>(reg_buf_).first(5);
+
+    return io_.readAsync(span);
+  }
+
+  bool readDataAsync(uint8_t addr) {
+    reg_buf_[0] = Addr;
+    reg_buf_[1] = addr;
+    reg_buf_[2] = Addr;
+    reg_buf_[3] = 0;
+    reg_buf_[4] = 0;
+    reg_buf_[5] = 0;
+    reg_buf_[6] = 0;
+
+    return io_.readAsync(reg_buf_);
+  }
+
+  bool readDone() { return io_.readDone(); }
+
+  uint16_t getRegValue() {
+    return (static_cast<uint16_t>(reg_buf_[3]) << 8) | reg_buf_[4];
+  }
+
+  uint32_t getDataValue() {
+    return (static_cast<uint32_t>(reg_buf_[3]) << 24) |
+           (static_cast<uint32_t>(reg_buf_[4]) << 16) |
+           (static_cast<uint32_t>(reg_buf_[5]) << 8) | reg_buf_[6];
+  }
+
+  // #########################
+  //          Idle
+  // #########################
+
+  bool start_flag_ = false;
+
+  bool checkEvent(Idle, Start) { return start_flag_; }
+  void handleEvent(Idle, Start) { start_flag_ = false; }
+
+  // #########################
+  //          Check
+  // #########################
+
+  bool checkEvent(Check, Stop) { return buf_.empty(); }
+  void handleEvent(Check, Stop) {}
+
+  bool checkEvent(Check, Start) { return !buf_.empty(); }
+  void handleEvent(Check, Start) {
+    if (!readRegAsync(map_.getAddress<FdcConf>())) {
+      // TODO: log
+    }
+  }
+
+  // #########################
+  //       WaitFdcFlag
+  // #########################
+  bool checkEvent(WaitFdcFlag, NotReady) {
+    if (readDone()) {
+      auto reg = getRegValue();
+      FdcConf fdc{reg};
+      return !fdc.get<FdcConf::Map::Done1Field>();
+    }
+    return false;
+  }
+  void handleEvent(WaitFdcFlag, NotReady) {}
+
+  bool checkEvent(WaitFdcFlag, Start) {
+    if (readDone()) {
+      auto reg = getRegValue();
+      FdcConf fdc{reg};
+      return fdc.get<FdcConf::Map::Done1Field>();
+    }
+    return false;
+  }
+  void handleEvent(WaitFdcFlag, Start) {
+    if (!readDataAsync(map_.getAddress<Meas1>())) {
+      // TODO: log
+    }
+  }
+
+  // #########################
+  //        WaitMeas
+  // #########################
+  bool checkEvent(WaitMeas, Start) { return readDone(); }
+  void handleEvent(WaitMeas, Start) {
+    auto meas1 = getDataValue();
+    if (!buf_.empty()) {
+      buf_[0] = meas1;
+      buf_ = buf_.subspan(1);
+    }
+  }
+
+  friend class m::Fsm_v4<Fdc1004<TimeUnit, Time, Io>, Idle,
+                         m::Transition<Idle, Start, Check>,
+
+                         m::Transition<Check, Stop, Idle>,
+                         m::Transition<Check, Start, WaitFdcFlag>,
+
+                         m::Transition<WaitFdcFlag, NotReady, Check>,
+                         m::Transition<WaitFdcFlag, Start, WaitMeas>,
+
+                         m::Transition<WaitMeas, Start, Check>>;
 };
-}  // namespace m::ic
-
-//  private:
-//   m::ifc::IIO_Sync<Ms<int>>& i2c_;
-//   uint8_t addr_ = 0x50;
-
-//  public:
-//   FDC1004(m::ifc::IIO_Sync<Ms<int>>& i2c) : i2c_(i2c) {}
-
-//   enum class RegAddr : uint8_t {
-//     Meas_1_Msb = 0,
-//     Meas_1_Lsb,
-//     Meas_2_Msb,
-//     Meas_2_Lsb,
-//     Meas_3_Msb,
-//     Meas_3_Lsb,
-//     Meas_4_Msb,
-//     Meas_4_Lsb,
-//     Meas_Conf_1,
-//     Meas_Conf_2,
-//     Meas_Conf_3,
-//     Meas_Conf_4,
-//     Fdc_Conf,
-//   };
-
-//   enum class MeasIndex : uint8_t {
-//     N_1 = 1,
-//     N_2,
-//     N_3,
-//     N_4,
-//   };
-
-//   enum class ChA : uint8_t {
-//     CIN1 = 0,
-//     CIN2,
-//     CIN3,
-//     CIN4,
-//   };
-
-//   enum class ChB : uint8_t {
-//     CIN1 = 0,
-//     CIN2,
-//     CIN3,
-//     CIN4,
-//     CAPDAC = 0b100,
-//     DISABLED = 0b111
-//   };
-
-//   // BitReg fields for MeasConf register
-//   struct ChaField : public m::BitField<3, ChaField, 0> {};  // Bits 0-2: CHA
-//   struct ChbField : public m::BitField<3, ChbField, 0> {};  // Bits 3-5: CHB
-//   struct CapdacField : public m::BitField<5, CapdacField, 0> {
-//   };  // Bits 6-10: CAPDAC
-//   // Bits 11-15 are reserved
-
-//   using MeasConfRegister =
-//       m::Register<std::uint16_t, ChaField, ChbField, CapdacField,
-//                   m::DummyField<5>>;  // Reserved bits 11-15
-
-//   enum class Rate : uint8_t { R_100 = 1, R_200, R_400 };
-
-//   // BitReg fields for FdcConf register
-//   struct RstField : public m::BitField<1, RstField, 0> {};  // Bit 15: Reset
-//   struct Rate1Field : public m::BitField<1, Rate1Field, 0> {
-//   };  // Bit 10: Rate bit 1
-//   struct Rate0Field : public m::BitField<1, Rate0Field, 0> {
-//   };  // Bit 11: Rate bit 0
-//   struct RepeatField : public m::BitField<1, RepeatField, 0> {
-//   };  // Bit 8: Repeat
-//   struct Meas1Field : public m::BitField<1, Meas1Field, 0> {};  // Bit 7:
-//   Meas 1 struct Meas2Field : public m::BitField<1, Meas2Field, 0> {};  // Bit
-//   6: Meas 2 struct Meas3Field : public m::BitField<1, Meas3Field, 0> {};  //
-//   Bit 5: Meas 3 struct Meas4Field : public m::BitField<1, Meas4Field, 0> {};
-//   // Bit 4: Meas 4 struct Done1Field : public m::BitField<1, Done1Field, 0>
-//   {};  // Bit 3: Done 1 struct Done2Field : public m::BitField<1, Done2Field,
-//   0> {};  // Bit 2: Done 2 struct Done3Field : public m::BitField<1,
-//   Done3Field, 0> {};  // Bit 1: Done 3 struct Done4Field : public
-//   m::BitField<1, Done4Field, 0> {};  // Bit 0: Done 4
-
-//   using FdcConfRegister = m::Register<std::uint16_t,
-//                                       Done4Field,        // Bit 0
-//                                       Done3Field,        // Bit 1
-//                                       Done2Field,        // Bit 2
-//                                       Done1Field,        // Bit 3
-//                                       Meas4Field,        // Bit 4
-//                                       Meas3Field,        // Bit 5
-//                                       Meas2Field,        // Bit 6
-//                                       Meas1Field,        // Bit 7
-//                                       RepeatField,       // Bit 8
-//                                       m::DummyField<1>,  // Bit 9: Reserved
-//                                       Rate1Field,        // Bit 10: Rate[1]
-//                                       Rate0Field,        // Bit 11: Rate[0]
-//                                       m::DummyField<3>,  // Bits 12-14:
-//                                       Reserved RstField>;         // Bit 15
-
-//   static_assert(sizeof(FdcConfRegister) == 2, "FdcConfRegister size
-//   mismatch");
-
-//   bool writeReg(RegAddr reg_addr, uint16_t value) {
-//     std::array<uint8_t, 4> data{addr_, (uint8_t)reg_addr, (uint8_t)(value >>
-//     8),
-//                                 (uint8_t)value};
-
-//     auto res =
-//         i2c_.write(data, Ms<int>{static_cast<int>(
-//                              1'000 * data.size() / i2c_.getBaudrate() + 1)});
-
-//     return res;
-//   }
-
-//   std::optional<uint16_t> readReg(RegAddr reg_addr) {
-//     std::array<uint8_t, 3> data{addr_, (uint8_t)reg_addr, 0};
-
-//     {
-//       auto temp_span = std::span{data}.first(2);
-//       if (!i2c_.write(
-//               temp_span,
-//               Ms<int>{static_cast<int>(
-//                   1'000 * temp_span.size() / i2c_.getBaudrate() + 1)})) {
-//         return std::nullopt;
-//       }
-//     }
-
-//     data[1] = 0;
-//     if (i2c_.read(data, Ms<int>{static_cast<int>(
-//                             1'000 * data.size() / i2c_.getBaudrate() + 1)}))
-//                             {
-//       uint16_t temp = (((uint16_t)data[1]) << 8) + data[2];
-//       return temp;
-//     } else {
-//       return std::nullopt;
-//     }
-//   }
-
-//   enum class MeasChannel : uint8_t { N1 = 0, N2, N3, N4 };
-//   std::optional<int32_t> readMeas(MeasChannel channel) {
-//     std::array<uint8_t, 2> data_tx{addr_, 0};
-//     std::array<uint8_t, 3> data_rx{addr_, 0, 0};
-//     switch (channel) {
-//       case MeasChannel::N1:
-//         data_tx[1] = (uint8_t)RegAddr::Meas_1_Msb;
-//         break;
-//       case MeasChannel::N2:
-//         data_tx[1] = (uint8_t)RegAddr::Meas_2_Msb;
-//         break;
-//       case MeasChannel::N3:
-//         data_tx[1] = (uint8_t)RegAddr::Meas_3_Msb;
-//         break;
-//       case MeasChannel::N4:
-//         data_tx[1] = (uint8_t)RegAddr::Meas_4_Msb;
-//         break;
-//       default:
-//         return std::nullopt;
-//         break;
-//     }
-
-//     if (!i2c_.write(data_tx,
-//                     Ms<int>{static_cast<int>(
-//                         1'000 * data_tx.size() / i2c_.getBaudrate() + 1)})) {
-//       return std::nullopt;
-//     }
-
-//     int32_t temp{0};
-
-//     if (i2c_.read(data_rx,
-//                   Ms<int>{static_cast<int>(
-//                       1'000 * data_rx.size() / i2c_.getBaudrate() + 1)})) {
-//       temp = (((uint16_t)data_rx[1]) << 16) + (((uint16_t)data_rx[2]) << 8);
-//     } else {
-//       return std::nullopt;
-//     }
-
-//     ++data_tx[1];
-//     if (!i2c_.write(data_tx,
-//                     Ms<int>{static_cast<int>(
-//                         1'000 * data_tx.size() / i2c_.getBaudrate() + 1)})) {
-//       return std::nullopt;
-//     }
-
-//     if (i2c_.read(data_rx,
-//                   Ms<int>{static_cast<int>(
-//                       1'000 * data_rx.size() / i2c_.getBaudrate() + 1)})) {
-//       temp += data_rx[1];
-//       if (temp & 0x80'00'00) {
-//         temp |= 0xFF'00'00'00;
-//       }
-//       return temp;
-//     } else {
-//       return std::nullopt;
-//     }
-//   }
-
-//   bool startMeasurement(MeasChannel channel, ChA cha, ChB chb, uint16_t
-//   capdac,
-//                         Rate rate) {
-//     // Configure measurement register
-//     MeasConfRegister meas_conf;
-//     meas_conf.set<ChaField>(static_cast<uint8_t>(cha));
-//     meas_conf.set<ChbField>(static_cast<uint8_t>(chb));
-//     meas_conf.set<CapdacField>(capdac & 0x1F);  // Ensure 5-bit value
-
-//     // Configure FDC register
-//     FdcConfRegister fdc_conf;
-
-//     // Set rate (2-bit value)
-//     uint8_t rate_val = static_cast<uint8_t>(rate);
-//     fdc_conf.set<Rate0Field>(rate_val & 0x01);         // Bit 0 of rate
-//     fdc_conf.set<Rate1Field>((rate_val >> 1) & 0x01);  // Bit 1 of rate
-//     fdc_conf.set<RepeatField>(1);
-
-//     RegAddr reg_addr = RegAddr::Meas_Conf_1;
-
-//     switch (channel) {
-//       case MeasChannel::N1:
-//         fdc_conf.set<Meas1Field>(1);
-//         reg_addr = RegAddr::Meas_Conf_1;
-//         break;
-//       case MeasChannel::N2:
-//         fdc_conf.set<Meas2Field>(1);
-//         reg_addr = RegAddr::Meas_Conf_2;
-//         break;
-//       case MeasChannel::N3:
-//         fdc_conf.set<Meas3Field>(1);
-//         reg_addr = RegAddr::Meas_Conf_3;
-//         break;
-//       case MeasChannel::N4:
-//         fdc_conf.set<Meas4Field>(1);
-//         reg_addr = RegAddr::Meas_Conf_4;
-//         break;
-//       default:
-//         return false;
-//     }
-
-//     if (!writeReg(reg_addr, meas_conf.raw())) return false;
-//     if (!writeReg(RegAddr::Fdc_Conf, fdc_conf.raw())) return false;
-//     return true;
-//   }
-// };
-// }  // namespace m::ic
+}  // namespace m::ic::fdc1004
 #endif  // FDC1004_HPP

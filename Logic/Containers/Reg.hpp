@@ -65,7 +65,7 @@ class Reg {
 
   constexpr Reg() : data_(0) {}
 
-  explicit constexpr Reg(Storage value) : data_(value & non_dummy_mask_) {}
+  constexpr Reg(Storage value) : data_(value & non_dummy_mask_) {}
 
   template <CBitField Field>
     requires(std::is_same_v<Field, Fields> || ...)

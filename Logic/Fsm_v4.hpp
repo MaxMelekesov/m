@@ -21,7 +21,7 @@ struct Active : m::State {};
 struct Start : m::Event {};
 struct Stop : m::Event {};
 
-class MyFsm : m::Fsm_v4<MyFsm, Idle, m::Transition<Idle, Start, Active>,
+class MyFsm : public m::Fsm_v4<MyFsm, Idle, m::Transition<Idle, Start, Active>,
                         m::Transition<Active, Stop, Idle>> {
  public:
   void handle() { checkEvents(); }

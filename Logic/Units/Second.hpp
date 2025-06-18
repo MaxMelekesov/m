@@ -77,8 +77,10 @@ class Sec {
   type value_;
 };
 
+namespace m::c {
 template <typename T>
 concept CSec =
     requires { typename T::type; } && std::is_same_v<T, Sec<typename T::type>>;
+}  // namespace m::c
 
 #endif  // SECOND_HPP

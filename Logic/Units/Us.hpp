@@ -77,8 +77,10 @@ class Us {
   type value_;
 };
 
+namespace m::c {
 template <typename T>
 concept CUs =
     requires { typename T::type; } && std::is_same_v<T, Us<typename T::type>>;
+}
 
 #endif  // US_H

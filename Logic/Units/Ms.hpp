@@ -77,8 +77,10 @@ class Ms {
   type value_;
 };
 
+namespace m::c {
 template <typename T>
 concept CMs =
     requires { typename T::type; } && std::is_same_v<T, Ms<typename T::type>>;
+}  // namespace m::c
 
 #endif  // MS_H

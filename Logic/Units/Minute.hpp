@@ -77,8 +77,10 @@ class Min {
   type value_;
 };
 
+namespace m::c {
 template <typename T>
 concept CMin =
     requires { typename T::type; } && std::is_same_v<T, Min<typename T::type>>;
+}  // namespace m::c
 
 #endif  // MINUTE_HPP

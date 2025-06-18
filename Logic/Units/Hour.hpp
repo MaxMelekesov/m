@@ -77,8 +77,10 @@ class Hour {
   type value_;
 };
 
+namespace m::c {
 template <typename T>
 concept CHour =
     requires { typename T::type; } && std::is_same_v<T, Hour<typename T::type>>;
+}  // namespace m::c
 
 #endif  // HOURS_HPP

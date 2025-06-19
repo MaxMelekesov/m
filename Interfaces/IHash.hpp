@@ -27,6 +27,17 @@ class IHash {
 
   constexpr uint32_t size() const { return hash_bytes; }
 };
+
+template <typename T>
+concept CHash = requires(T hash, std::span<uint8_t const> data,
+                         typename T::type& hash_val) {
+  typename T::type;
+  { hash.check(data, hash_val) } -> std::same_as<bool>;
+  { hash.calc(data) } -> std::same_as<typename T::type>;
+  { hash.size() } -> std::same_as<uint32_t>;
+};
+
+static_assert(CHash<IHash<4>>, "IHash must satisfy CHash concept");
 }  // namespace m::ifc
 
 #endif  // IHASH_H

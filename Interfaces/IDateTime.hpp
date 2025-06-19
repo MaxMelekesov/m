@@ -11,6 +11,7 @@
 #ifndef IDATETIME_HPP
 #define IDATETIME_HPP
 
+#include <concepts>
 #include <cstdint>
 
 namespace m::ifc {
@@ -60,6 +61,22 @@ class IDateTime {
   virtual Time getTime() = 0;
   virtual bool setTime(Time& time) = 0;
 };
+
+template <typename T>
+concept CDateTime =
+    requires(T dt, typename T::Date date, typename T::Time time) {
+      typename T::Date;
+      typename T::Time;
+
+      { dt.getDate() } -> std::same_as<typename T::Date>;
+      { dt.setDate(date) } -> std::same_as<bool>;
+
+      { dt.getTime() } -> std::same_as<typename T::Time>;
+      { dt.setTime(time) } -> std::same_as<bool>;
+    };
+
+static_assert(CDateTime<IDateTime>, "IDateTime must satisfy CDateTime concept");
+
 }  // namespace m::ifc
 
-#endif  // v
+#endif  // IDATETIME_HPP

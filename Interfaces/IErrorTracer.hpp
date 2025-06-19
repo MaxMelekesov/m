@@ -27,6 +27,17 @@ class IErrorTracer {
   virtual std::span<type> getTrace() = 0;
 };
 
+template <typename T>
+concept CErrorTracer = requires(T tracer, typename T::type value) {
+  typename T::type;
+  { tracer.add(value) } -> std::same_as<bool>;
+  { tracer.clear() } -> std::same_as<void>;
+  { tracer.getTrace() } -> std::same_as<std::span<typename T::type>>;
+};
+
+static_assert(CErrorTracer<IErrorTracer<int>>,
+              "IErrorTracer must satisfy CErrorTracer concept");
+
 }  // namespace m::ifc
 
 #endif  // IERRORTRACER_H

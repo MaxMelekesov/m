@@ -21,6 +21,14 @@ class ILog {
   virtual void add(std::string_view text) = 0;
   virtual void clear() = 0;
 };
+
+template <typename T>
+concept CLog = requires(T log, std::string_view text) {
+  { log.add(text) } -> std::same_as<void>;
+  { log.clear() } -> std::same_as<void>;
+};
+
+static_assert(CLog<ILog>, "ILog must satisfy CLog concept");
 }  // namespace m::ifc
 
 #endif  // ILOG_H

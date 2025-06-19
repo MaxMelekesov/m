@@ -21,8 +21,19 @@ class IMemory {
 
   virtual std::size_t size() = 0;
   virtual bool write(std::size_t addr, std::span<uint8_t const> data) = 0;
-  virtual bool read(std::size_t addr, std::span<uint8_t> data) = 0;
+  virtual bool read(std::size_t addr, std::span<volatile uint8_t> data) = 0;
 };
+
+template <typename T>
+concept CMemory =
+    requires(T mem, std::size_t addr, std::span<uint8_t const> wdata,
+             std::span<volatile uint8_t> rdata) {
+      { mem.size() } -> std::same_as<std::size_t>;
+      { mem.write(addr, wdata) } -> std::same_as<bool>;
+      { mem.read(addr, rdata) } -> std::same_as<bool>;
+    };
+
+static_assert(CMemory<IMemory>, "IMemory must satisfy CMemory concept");
 }  // namespace m::ifc
 
 #endif  // IMEMORY_H

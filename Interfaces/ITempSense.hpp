@@ -11,6 +11,8 @@
 #ifndef ITEMPSENSE_H
 #define ITEMPSENSE_H
 
+#include <concepts>
+
 namespace m::ifc {
 template <typename Unit>
 class ITempSense {
@@ -25,6 +27,17 @@ class ITempSense {
   virtual type max() = 0;
 };
 
+template <typename T>
+concept CTempSense = requires(T ts) {
+  typename T::type;
+  { ts.value() } -> std::same_as<typename T::type>;
+  { ts.min() } -> std::same_as<typename T::type>;
+  { ts.max() } -> std::same_as<typename T::type>;
+};
+
+static_assert(CTempSense<ITempSense<int>>,
+              "ITempSense must satisfy CTempSense concept");
+
 class ITempSenseError {
  public:
   virtual ~ITempSenseError() {}
@@ -32,6 +45,15 @@ class ITempSenseError {
   virtual bool shorted() = 0;
   virtual bool broken() = 0;
 };
+
+template <typename T>
+concept CTempSenseError = requires(T err) {
+  { err.shorted() } -> std::same_as<bool>;
+  { err.broken() } -> std::same_as<bool>;
+};
+
+static_assert(CTempSenseError<ITempSenseError>,
+              "ITempSenseError must satisfy CTempSenseError concept");
 }  // namespace m::ifc
 
 #endif  // ITEMPSENSE_H

@@ -67,7 +67,7 @@ enum class ReturnCode : uint8_t {
 
 enum class EventType : uint8_t { Release = 0, Press = 1, ValueChanged = 3 };
 
-template <m::c::CRingDataLink IoType, std::size_t MaxComponents,
+template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents,
           std::size_t BufferSize>
 class Nextion;
 
@@ -98,7 +98,7 @@ class Component {
   uint8_t component_id_;
   std::string_view name_;
 
-  template <m::c::CRingDataLink IoType, std::size_t MaxComponents,
+  template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents,
             std::size_t BufferSize>
   friend class Nextion;
 };
@@ -125,7 +125,7 @@ concept CNextion = requires(T nxt, const Component& component, uint32_t id,
   { nxt.setText(component, text) } -> std::same_as<bool>;
 };
 
-template <m::c::CRingDataLink IoType, std::size_t MaxComponents = 32,
+template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents = 32,
           std::size_t BufferSize = 256>
 class Nextion
     : public m::Fsm_v4<

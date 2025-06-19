@@ -43,7 +43,7 @@ class NextionDataLink {
     return true;
   }
 
-  std::optional<m::c::RingSpan> getPacket() {
+  std::optional<m::ifc::RingSpan> getPacket() {
     auto tail = io_.bytesAvailable();
     if (tail == scan_pos_) {
       // Нет новых байт, проверяем таймаут
@@ -184,7 +184,7 @@ class NextionDataLink {
   }
 };
 
-static_assert(m::c::CRingDataLink<NextionDataLink<Us<uint32_t>>>,
+static_assert(m::ifc::CRingDataLink<NextionDataLink<Us<uint32_t>>>,
               "NextionDataLink does not satisfy CDataLink concept");
 
 }  // namespace m::nxt

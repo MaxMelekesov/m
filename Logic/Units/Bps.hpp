@@ -77,9 +77,9 @@ class Bps {
   type value_;
 };
 
-namespace m::c {
+namespace m::ifc {
 template <typename T>
 concept CBps =
     requires { typename T::type; } && std::is_same_v<T, Bps<typename T::type>>;
-}  // namespace m::c
+}  // namespace m::ifc
 #endif  // BPS_HPP

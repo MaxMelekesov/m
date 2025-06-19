@@ -10,9 +10,9 @@
 #ifndef FDC1004_HPP
 #define FDC1004_HPP
 
-#include <CIO_Async.hpp>
-#include <CTime.hpp>
 #include <Fsm_v4.hpp>
+#include <IIO_Async.hpp>
+#include <ITime.hpp>
 #include <Ms.hpp>
 #include <Reg.hpp>
 #include <RegMap.hpp>
@@ -99,7 +99,8 @@ struct NotReady : m::Event {};
 
 }  // namespace
 
-template <m::c::CMs TimeUnit, m::c::CTime<TimeUnit> Time, m::c::CIO_Async Io>
+template <m::ifc::CMs TimeUnit, m::ifc::CTime<TimeUnit> Time,
+          m::ifc::CIO_Async Io>
 class Fdc1004 : public m::Fsm_v4<Fdc1004<TimeUnit, Time, Io>, Idle,
                                  m::Transition<Idle, Start, Check>,
 

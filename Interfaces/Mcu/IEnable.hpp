@@ -8,12 +8,20 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef C_ENABLE_HPP
-#define C_ENABLE_HPP
+#ifndef IENABLE_HPP
+#define IENABLE_HPP
 
 #include <concepts>
 
-namespace m::c::mcu {
+namespace m::ifc::mcu {
+class IEnable {
+ public:
+  virtual ~IEnable() {}
+
+  virtual bool enable() = 0;
+  virtual bool isEnabled() = 0;
+  virtual bool disable() = 0;
+};
 
 template <typename T>
 concept CEnable = requires(T t) {
@@ -22,6 +30,8 @@ concept CEnable = requires(T t) {
   { t.disable() } -> std::same_as<bool>;
 };
 
-}  // namespace m::c::mcu
+static_assert(CEnable<IEnable>, "IEnable must satisfy CEnable concept");
 
-#endif  // C_ENABLE_HPP
+}  // namespace m::ifc::mcu
+
+#endif  // IENABLE_HPP

@@ -11,6 +11,7 @@
 #define BITREG_HPP
 
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 
 /* Usage example:
@@ -56,12 +57,12 @@ concept CBitField = requires {
 template <typename T>
 concept CRegStorage = std::is_integral_v<T> && std::is_unsigned_v<T>;
 
-template <CRegStorage Storage, typename FieldMap, CBitField... Fields>
+template <CRegStorage Storage, CBitField... Fields>
   requires(sizeof...(Fields) > 0)
 class Reg {
  public:
   using StorageType = Storage;
-  using Map = FieldMap;
+  using Types = std::tuple<Fields...>;
 
   constexpr Reg() : data_(0) {}
 

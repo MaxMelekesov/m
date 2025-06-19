@@ -15,7 +15,7 @@
 
 namespace m {
 
-/* Пример использования:
+/* Usage example:
 
 #include <iostream>
 #include <string>
@@ -40,6 +40,8 @@ int main() {
 template <typename... Ts>
 struct TypeList {};
 
+namespace {
+
 template <typename TList, typename = void>
 struct list_traits {
   static constexpr bool is_supported = false;
@@ -60,6 +62,7 @@ struct list_traits<TypeList<Ts...>> {
   template <std::size_t I>
   using type_at = std::tuple_element_t<I, std::tuple<Ts...>>;
 };
+}  // namespace
 
 template <typename TList, typename F>
 constexpr void for_each_type(F&& func) {

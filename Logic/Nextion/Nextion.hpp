@@ -11,8 +11,8 @@
 #ifndef NEXTION_HPP
 #define NEXTION_HPP
 
-#include <CDataLink.hpp>
 #include <Fsm_v4.hpp>
+#include <IDataLink.hpp>
 #include <NextionDataLink.hpp>
 #include <TSerDes.hpp>
 #include <array>

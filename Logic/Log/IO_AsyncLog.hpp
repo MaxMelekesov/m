@@ -7,22 +7,22 @@
  *
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
+
+#ifndef IO_ASYNC_LOG_HPP
+#define IO_ASYNC_LOG_HPP
 #include <IIO_Async.hpp>
 #include <ILog.hpp>
 #include <array>
 #include <cstring>
-#include <format>
-#include <iostream>
 #include <ranges>
-#include <span>
 #include <string_view>
 
 namespace m {
 
 template <std::size_t Line_Length = 63, std::size_t Lines = 100>
-class IIO_AsyncLog : public m::ifc::ILog {
+class IO_AsyncLog : public m::ifc::ILog {
  public:
-  explicit IIO_AsyncLog(m::ifc::IIO_Async& io) : io_(io) {}
+  explicit IO_AsyncLog(m::ifc::IIO_Async& io) : io_(io) {}
 
   void add(std::string_view text) override {
     if (text.empty()) {
@@ -75,3 +75,5 @@ class IIO_AsyncLog : public m::ifc::ILog {
 };
 
 }  // namespace m
+
+#endif  // IO_ASYNC_LOG_HPP

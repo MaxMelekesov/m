@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef SIMPLEERRORTRACER_H
-#define SIMPLEERRORTRACER_H
+#ifndef SIMPLEERRORTRACER_HPP
+#define SIMPLEERRORTRACER_HPP
 
 #include <IErrorTracer.hpp>
 #include <span>
@@ -44,4 +44,4 @@ class SimpleErrorTracer : public m::ifc::IErrorTracer<T> {
 
 }  // namespace m
 
-#endif  // SIMPLEERRORTRACER_H
+#endif  // SIMPLEERRORTRACER_HPP

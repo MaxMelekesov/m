@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef DATA_LINK_ASYNC_H
-#define DATA_LINK_ASYNC_H
+#ifndef DATA_LINK_ASYNC_HPP
+#define DATA_LINK_ASYNC_HPP
 
 #include <IDataLink.hpp>
 #include <IIO_Async.hpp>
@@ -133,4 +133,4 @@ class DataLinkAsync : public ifc::IDataLink {
 
 }  // namespace m
 
-#endif  // DATA_LINK_ASYNC_H
+#endif  // DATA_LINK_ASYNC_HPP

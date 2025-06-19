@@ -7,10 +7,11 @@
  *
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
+#ifndef SIMPLELOGGER_HPP
+#define SIMPLELOGGER_HPP
 
 #include <ILog.hpp>
 #include <array>
-#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <string_view>
@@ -67,3 +68,5 @@ class SimpleLogger final : public m::ifc::ILog {
 };
 
 }  // namespace m
+
+#endif  // SIMPLELOGGER_HPP

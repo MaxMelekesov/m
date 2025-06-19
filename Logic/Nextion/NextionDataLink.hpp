@@ -11,7 +11,7 @@
 #ifndef NEXTION_DATA_LINK_HPP
 #define NEXTION_DATA_LINK_HPP
 
-#include <CDataLink.hpp>
+#include <IDataLink.hpp>
 #include <IIO_Async.hpp>
 #include <Timer.hpp>
 #include <Us.hpp>
@@ -22,10 +22,10 @@
 
 namespace m::nxt {
 
-template <CUs UsType>
+template <m::ifc::CUs UsType>
 class NextionDataLink {
  public:
-  NextionDataLink(ifc::ITime<UsType> &time, ifc::IIO_Async &io)
+  NextionDataLink(m::ifc::ITime<UsType> &time, m::ifc::IIO_Async &io)
       : io_(io), tx_timeout_timer_{time}, rx_timeout_timer_(time) {}
 
   bool startReceive(std::span<uint8_t> rx_buf) {

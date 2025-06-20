@@ -12,6 +12,7 @@
 
 #include <IIO_Async.hpp>
 #include <ITime.hpp>
+#include <StaticMap.hpp>
 #include <Timeout.hpp>
 #include <TupleContains.hpp>
 #include <Us.hpp>
@@ -22,6 +23,13 @@
 
 namespace m {
 
+template <typename T>
+concept CIcInfo = requires {
+  typename T::Regs;
+  typename T::Map;
+  std::tuple_size_v<typename T::Regs>;
+};
+
 template <typename T, typename Reg>
 concept CIcSync = requires(T t, Reg reg) {
   { t.template getWriteBuf<Reg>(reg) } -> std::same_as<std::span<uint8_t>>;
@@ -30,7 +38,7 @@ concept CIcSync = requires(T t, Reg reg) {
 };
 
 template <typename Derived, m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
-          m::ifc::CIO_Async Io, typename IcInfo>
+          m::ifc::CIO_Async Io, CIcInfo IcInfo>
 class IcSync {
  public:
   IcSync(Time& time, Io& io, TimeUnit add_timeout)
@@ -41,9 +49,8 @@ class IcSync {
   bool write(Reg reg) {
     static_assert(CIcSync<Derived, Reg>,
                   "Derived must implement CIcSync interface");
-    auto span = static_cast<Derived*>(this)->template getWriteBuf<Reg>(reg);
 
-    if (!io_.writeAsync(span)) return false;
+    auto span = static_cast<Derived*>(this)->template getWriteBuf<Reg>(reg);
 
     if (!timeout_.execWithTimeout(
             [&]() { return io_.writeDone(); },
@@ -60,6 +67,7 @@ class IcSync {
   std::optional<Reg> read() {
     static_assert(CIcSync<Derived, Reg>,
                   "Derived must implement CIcSync interface");
+
     auto span = static_cast<Derived*>(this)->template getReadBuf<Reg>();
 
     if (!io_.readAsync(span)) return std::nullopt;
@@ -71,15 +79,13 @@ class IcSync {
       return std::nullopt;
     }
 
-    Reg reg = static_cast<Derived*>(this)->template getReg<Reg>();
-    return reg;
+    return static_cast<Derived*>(this)->template getReg<Reg>();
   }
 
  private:
   Time& time_;
   Io& io_;
   TimeUnit add_timeout_;
-
   m::Timeout<TimeUnit> timeout_{time_};
 };
 

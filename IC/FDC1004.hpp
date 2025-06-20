@@ -20,8 +20,6 @@
 #include <Us.hpp>
 #include <cstdint>
 
-#include "Fsm.hpp"
-
 namespace m::ic {
 
 struct Fdc1004 {
@@ -121,11 +119,12 @@ struct Fdc1004 {
   using Regs = std::tuple<Meas1, Meas2, Meas3, Meas4, ConfMeas1, ConfMeas2,
                           ConfMeas3, ConfMeas4, FdcConf>;
 
-  using Map = m::StaticMap<uint8_t, m::Pair<Meas1, 0x00>, m::Pair<Meas2, 0x02>,
-                           m::Pair<Meas3, 0x04>, m::Pair<Meas4, 0x06>,
-                           m::Pair<ConfMeas1, 0x08>, m::Pair<ConfMeas2, 0x09>,
-                           m::Pair<ConfMeas3, 0x0A>, m::Pair<ConfMeas4, 0x0B>,
-                           m::Pair<FdcConf, 0x0C>>;
+  struct Map
+      : public m::StaticMap<uint8_t, m::Pair<Meas1, 0x00>, m::Pair<Meas2, 0x02>,
+                            m::Pair<Meas3, 0x04>, m::Pair<Meas4, 0x06>,
+                            m::Pair<ConfMeas1, 0x08>, m::Pair<ConfMeas2, 0x09>,
+                            m::Pair<ConfMeas3, 0x0A>, m::Pair<ConfMeas4, 0x0B>,
+                            m::Pair<FdcConf, 0x0C>> {};
 };
 
 template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
@@ -137,12 +136,26 @@ class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time,
       : IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time, Io, Fdc1004>(
             time, io, add_timeout) {}
 
+ private:
+  constexpr static uint8_t Addr = 0x50;
+
+  std::array<uint8_t, 5> read_buf_;
+  std::array<uint8_t, 4> write_buf_;
+
   template <typename Reg>
   std::span<uint8_t> getWriteBuf(Reg reg) {
     write_buf_[0] = Addr;
     write_buf_[1] = Fdc1004::Map::template value<Reg>();
     write_buf_[2] = static_cast<uint8_t>(reg.value.getRaw() >> 8);
     write_buf_[3] = static_cast<uint8_t>(reg.value.getRaw());
+    return write_buf_;
+  }
+
+  std::span<uint8_t> getWriteBuf(Fdc1004::ConfMeas1 reg) {
+    write_buf_[0] = Addr;
+    write_buf_[1] = Fdc1004::Map::template value<Fdc1004::ConfMeas1>();
+    write_buf_[2] = static_cast<uint8_t>(reg.value.getRaw());
+    write_buf_[3] = 0;
     return write_buf_;
   }
 
@@ -159,14 +172,13 @@ class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time,
 
   template <typename Reg>
   Reg getReg() {
-    return Reg{};
+    uint16_t raw = (static_cast<uint16_t>(read_buf_[3]) << 8) | read_buf_[4];
+    Reg reg{raw};
+    return reg;
   }
 
- private:
-  constexpr static uint8_t Addr = 0x50;
-
-  std::array<uint8_t, 5> read_buf_;
-  std::array<uint8_t, 4> write_buf_;
+  friend class IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time, Io,
+                      Fdc1004>;
 };
 
 // namespace {

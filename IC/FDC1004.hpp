@@ -116,6 +116,62 @@ struct Fdc1004 {
         value;
   };
 
+  struct OffsetCal1 {
+    struct Decimal : public m::BitField<Decimal, 11> {};
+    struct Integer : public m::BitField<Integer, 5> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct OffsetCal2 {
+    struct Decimal : public m::BitField<Decimal, 11> {};
+    struct Integer : public m::BitField<Integer, 5> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct OffsetCal3 {
+    struct Decimal : public m::BitField<Decimal, 11> {};
+    struct Integer : public m::BitField<Integer, 5> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct OffsetCal4 {
+    struct Decimal : public m::BitField<Decimal, 11> {};
+    struct Integer : public m::BitField<Integer, 5> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct GainCal1 {
+    struct Decimal : public m::BitField<Decimal, 14> {};
+    struct Integer : public m::BitField<Integer, 2> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct GainCal2 {
+    struct Decimal : public m::BitField<Decimal, 14> {};
+    struct Integer : public m::BitField<Integer, 2> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct GainCal3 {
+    struct Decimal : public m::BitField<Decimal, 14> {};
+    struct Integer : public m::BitField<Integer, 2> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
+  struct GainCal4 {
+    struct Decimal : public m::BitField<Decimal, 14> {};
+    struct Integer : public m::BitField<Integer, 2> {};
+
+    m::Reg<uint16_t, Decimal, Integer> value;
+  };
+
   struct Manufacturer {
     struct Id : public m::BitField<Id, 16> {};
 
@@ -129,15 +185,21 @@ struct Fdc1004 {
   };
 
   using Regs = std::tuple<Meas1, Meas2, Meas3, Meas4, ConfMeas1, ConfMeas2,
-                          ConfMeas3, ConfMeas4, FdcConf, Manufacturer, Device>;
+                          ConfMeas3, ConfMeas4, FdcConf, OffsetCal1, OffsetCal2,
+                          OffsetCal3, OffsetCal4, GainCal1, GainCal2, GainCal3,
+                          GainCal4, Manufacturer, Device>;
 
-  struct Map
-      : public m::StaticMap<uint8_t, m::Pair<Meas1, 0x00>, m::Pair<Meas2, 0x02>,
-                            m::Pair<Meas3, 0x04>, m::Pair<Meas4, 0x06>,
-                            m::Pair<ConfMeas1, 0x08>, m::Pair<ConfMeas2, 0x09>,
-                            m::Pair<ConfMeas3, 0x0A>, m::Pair<ConfMeas4, 0x0B>,
-                            m::Pair<FdcConf, 0x0C>, m::Pair<Manufacturer, 0xFE>,
-                            m::Pair<Device, 0xFF>> {};
+  struct Map : public m::StaticMap<
+                   uint8_t, m::Pair<Meas1, 0x00>, m::Pair<Meas2, 0x02>,
+                   m::Pair<Meas3, 0x04>, m::Pair<Meas4, 0x06>,
+                   m::Pair<ConfMeas1, 0x08>, m::Pair<ConfMeas2, 0x09>,
+                   m::Pair<ConfMeas3, 0x0A>, m::Pair<ConfMeas4, 0x0B>,
+                   m::Pair<FdcConf, 0x0C>, m::Pair<OffsetCal1, 0x0D>,
+                   m::Pair<OffsetCal2, 0x0E>, m::Pair<OffsetCal3, 0x0F>,
+                   m::Pair<OffsetCal4, 0x10>, m::Pair<GainCal1, 0x11>,
+                   m::Pair<GainCal2, 0x12>, m::Pair<GainCal3, 0x13>,
+                   m::Pair<GainCal4, 0x14>, m::Pair<Manufacturer, 0xFE>,
+                   m::Pair<Device, 0xFF>> {};
 };
 
 template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,

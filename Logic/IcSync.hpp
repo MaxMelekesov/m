@@ -52,6 +52,8 @@ class IcSync {
 
     auto span = static_cast<Derived*>(this)->template getWriteBuf<Reg>(reg);
 
+    if (!io_.writeAsync(span)) return false;
+
     if (!timeout_.execWithTimeout(
             [&]() { return io_.writeDone(); },
             span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +

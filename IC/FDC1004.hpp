@@ -116,15 +116,28 @@ struct Fdc1004 {
         value;
   };
 
+  struct Manufacturer {
+    struct Id : public m::BitField<Id, 16> {};
+
+    m::Reg<uint16_t, Id> value;
+  };
+
+  struct Device {
+    struct Id : public m::BitField<Id, 16> {};
+
+    m::Reg<uint16_t, Id> value;
+  };
+
   using Regs = std::tuple<Meas1, Meas2, Meas3, Meas4, ConfMeas1, ConfMeas2,
-                          ConfMeas3, ConfMeas4, FdcConf>;
+                          ConfMeas3, ConfMeas4, FdcConf, Manufacturer, Device>;
 
   struct Map
       : public m::StaticMap<uint8_t, m::Pair<Meas1, 0x00>, m::Pair<Meas2, 0x02>,
                             m::Pair<Meas3, 0x04>, m::Pair<Meas4, 0x06>,
                             m::Pair<ConfMeas1, 0x08>, m::Pair<ConfMeas2, 0x09>,
                             m::Pair<ConfMeas3, 0x0A>, m::Pair<ConfMeas4, 0x0B>,
-                            m::Pair<FdcConf, 0x0C>> {};
+                            m::Pair<FdcConf, 0x0C>, m::Pair<Manufacturer, 0xFE>,
+                            m::Pair<Device, 0xFF>> {};
 };
 
 template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
@@ -140,6 +153,7 @@ class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time,
   constexpr static uint8_t Addr = 0x50;
 
   std::array<uint8_t, 5> read_buf_;
+  std::array<uint8_t, 7> read_buf_large_;
   std::array<uint8_t, 4> write_buf_;
 
   template <typename Reg>
@@ -148,14 +162,6 @@ class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time,
     write_buf_[1] = Fdc1004::Map::template value<Reg>();
     write_buf_[2] = static_cast<uint8_t>(reg.value.getRaw() >> 8);
     write_buf_[3] = static_cast<uint8_t>(reg.value.getRaw());
-    return write_buf_;
-  }
-
-  std::span<uint8_t> getWriteBuf(Fdc1004::ConfMeas1 reg) {
-    write_buf_[0] = Addr;
-    write_buf_[1] = Fdc1004::Map::template value<Fdc1004::ConfMeas1>();
-    write_buf_[2] = static_cast<uint8_t>(reg.value.getRaw());
-    write_buf_[3] = 0;
     return write_buf_;
   }
 
@@ -171,8 +177,39 @@ class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time,
   }
 
   template <typename Reg>
+    requires std::same_as<Reg, Fdc1004::Meas1> ||
+             std::same_as<Reg, Fdc1004::Meas2> ||
+             std::same_as<Reg, Fdc1004::Meas3> ||
+             std::same_as<Reg, Fdc1004::Meas4>
+  std::span<volatile uint8_t> getReadBuf() {
+    read_buf_large_[0] = Addr;
+    read_buf_large_[1] = Fdc1004::Map::template value<Reg>();
+    read_buf_large_[2] = Addr;
+    read_buf_large_[3] = 0;
+    read_buf_large_[4] = 0;
+    read_buf_large_[5] = 0;
+    read_buf_large_[6] = 0;
+
+    return read_buf_large_;
+  }
+
+  template <typename Reg>
   Reg getReg() {
     uint16_t raw = (static_cast<uint16_t>(read_buf_[3]) << 8) | read_buf_[4];
+    Reg reg{raw};
+    return reg;
+  }
+
+  template <typename Reg>
+    requires std::same_as<Reg, Fdc1004::Meas1> ||
+             std::same_as<Reg, Fdc1004::Meas2> ||
+             std::same_as<Reg, Fdc1004::Meas3> ||
+             std::same_as<Reg, Fdc1004::Meas4>
+  Reg getReg() {
+    uint32_t raw = (static_cast<uint32_t>(read_buf_large_[3]) << 24) |
+                   (static_cast<uint32_t>(read_buf_large_[4]) << 16) |
+                   (static_cast<uint32_t>(read_buf_large_[5]) << 8) |
+                   (static_cast<uint32_t>(read_buf_large_[6]));
     Reg reg{raw};
     return reg;
   }

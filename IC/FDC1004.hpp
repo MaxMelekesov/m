@@ -226,217 +226,85 @@ struct Fdc1004 {
 
 template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
           m::ifc::CIO_Async Io>
-class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time,
-                                Io, Fdc1004> {
+class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, Fdc1004> {
  public:
   Fdc1004Ic(Time& time, Io& io, TimeUnit add_timeout)
-      : IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time, Io, Fdc1004>(
-            time, io, add_timeout) {}
+      : time_(time), io_(io), add_timeout_(add_timeout) {}
 
  private:
+  Time& time_;
+  Io& io_;
+  TimeUnit add_timeout_;
+  m::Timeout<TimeUnit> timeout_{time_};
+
   constexpr static uint8_t Addr = 0x50;
 
-  std::array<volatile uint8_t, 5> read_buf_;
+  std::array<volatile uint8_t, 3> read_buf_;
   std::array<uint8_t, 4> write_buf_;
 
   template <typename Reg>
-  std::span<uint8_t> getWriteBuf(Reg reg) {
+  bool writeImpl(Reg reg) {
     write_buf_[0] = Addr;
     write_buf_[1] = Fdc1004::Map::template value<Reg>();
     write_buf_[2] = static_cast<uint8_t>(reg.value.getRaw() >> 8);
     write_buf_[3] = static_cast<uint8_t>(reg.value.getRaw());
-    return write_buf_;
+
+    return writeSpan(write_buf_);
   }
 
   template <typename Reg>
-  std::span<volatile uint8_t> getReadBuf() {
-    read_buf_[0] = Addr;
-    read_buf_[1] = Fdc1004::Map::template value<Reg>();
-    read_buf_[2] = Addr;
-    read_buf_[3] = 0;
-    read_buf_[4] = 0;
+  std::optional<Reg> readImpl() {
+    write_buf_[0] = Addr;
+    write_buf_[1] = Fdc1004::Map::template value<Reg>();
 
-    return read_buf_;
+    std::span<const uint8_t> write_span(write_buf_);
+    write_span = write_span.first(2);
+
+    if (!writeSpan(write_span)) return std::nullopt;
+
+    read_buf_[0] = Addr;
+    read_buf_[1] = 0;
+    read_buf_[2] = 0;
+
+    if (!readSpan(read_buf_)) return std::nullopt;
+
+    return getReg<Reg>();
   }
 
   template <typename Reg>
   Reg getReg() {
-    uint16_t raw = (static_cast<uint16_t>(read_buf_[3]) << 8) | read_buf_[4];
+    uint16_t raw = (static_cast<uint16_t>(read_buf_[1]) << 8) | read_buf_[2];
     Reg reg{raw};
     return reg;
   }
 
-  friend class IcSync<Fdc1004Ic<TimeUnit, Time, Io>, TimeUnit, Time, Io,
-                      Fdc1004>;
+  bool writeSpan(std::span<const uint8_t> span) {
+    if (!io_.writeAsync(span)) return false;
+
+    if (!timeout_.execWithTimeout(
+            [&]() { return io_.writeDone(); },
+            span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
+                add_timeout_)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool readSpan(std::span<volatile uint8_t> span) {
+    if (!io_.readAsync(read_buf_)) return false;
+
+    if (!timeout_.execWithTimeout(
+            [&]() { return io_.readDone(); },
+            span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
+                add_timeout_)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  friend class IcSync<Fdc1004Ic<TimeUnit, Time, Io>, Fdc1004>;
 };
-
-// namespace {
-// struct Idle : m::State {};
-// struct Check : m::State {};
-// struct WaitFdcFlag : m::State {};
-// struct WaitMeas : m::State {};
-
-// struct Start : m::Event {};
-// struct Stop : m::Event {};
-// struct NotReady : m::Event {};
-
-// }  // namespace
-
-// Fdc1004Map map_;
-// ConfMeas1 meas_conf_{0x1C'00};
-// FdcConf fdc_conf_;
-
-// std::span<uint32_t> buf_;
-
-// std::array<uint8_t, 7> reg_buf_;
-
-// bool readRegAsync(uint8_t addr) {
-//   reg_buf_[0] = Addr;
-//   reg_buf_[1] = addr;
-//   reg_buf_[2] = Addr;
-//   reg_buf_[3] = 0;
-//   reg_buf_[4] = 0;
-
-//   auto span = std::span<uint8_t>(reg_buf_).first(5);
-
-//   return io_.readAsync(span);
-// }
-
-// bool readDataAsync(uint8_t addr) {
-//   reg_buf_[0] = Addr;
-//   reg_buf_[1] = addr;
-//   reg_buf_[2] = Addr;
-//   reg_buf_[3] = 0;
-//   reg_buf_[4] = 0;
-//   reg_buf_[5] = 0;
-//   reg_buf_[6] = 0;
-
-//   return io_.readAsync(reg_buf_);
-// }
-
-// bool readDone() { return io_.readDone(); }
-
-// uint16_t getRegValue() {
-//   return (static_cast<uint16_t>(reg_buf_[3]) << 8) | reg_buf_[4];
-// }
-
-// uint32_t getDataValue() {
-//   return (static_cast<uint32_t>(reg_buf_[3]) << 24) |
-//          (static_cast<uint32_t>(reg_buf_[4]) << 16) |
-//          (static_cast<uint32_t>(reg_buf_[5]) << 8) | reg_buf_[6];
-// }
-
-// bool setMeas1(Cha cha, Chb chb, uint8_t capdac) {
-//   meas_conf_.set<ConfMeas1::Map::Cha>(static_cast<uint8_t>(cha));
-//   meas_conf_.set<ConfMeas1::Map::Chb>(static_cast<uint8_t>(chb));
-//   meas_conf_.set<ConfMeas1::Map::Capdac>(capdac);
-
-//   return writeReg(map_.getAddress<ConfMeas1>(), meas_conf_.getRaw());
-// }
-
-// bool setMode(Rate rate, bool repeat) {
-//   fdc_conf_.set<FdcConf::Map::Rate>(static_cast<uint8_t>(rate));
-//   fdc_conf_.set<FdcConf::Map::Repeat>(repeat);
-//   fdc_conf_.set<FdcConf::Map::Meas1>(1);
-
-//   return writeReg(map_.getAddress<FdcConf>(), fdc_conf_.getRaw());
-// }
-
-// bool enableMeas(bool value) {
-//   if (!value) {
-//     fdc_conf_.set<FdcConf::Map::Repeat>(0);
-//   }
-//   fdc_conf_.set<FdcConf::Map::Meas1>(value);
-//   return writeReg(map_.getAddress<FdcConf>(), fdc_conf_.getRaw());
-// }
-
-// class Fdc1004Reader
-//     : public m::Fsm_v4<Fdc1004Reader, Idle, m::Transition<Idle, Start,
-//     Check>,
-
-//                        m::Transition<Check, Stop, Idle>,
-//                        m::Transition<Check, Start, WaitFdcFlag>,
-
-//                        m::Transition<WaitFdcFlag, NotReady, Check>,
-//                        m::Transition<WaitFdcFlag, Start, WaitMeas>,
-
-//                        m::Transition<WaitMeas, Start, Check>> {
-//  public:
-//   void handle() { this->checkEvents(); }
-
-//  private:
-//   // #########################
-//   //          Idle
-//   // #########################
-
-//   bool start_flag_ = false;
-
-//   bool checkEvent(Idle, Start) { return start_flag_; }
-//   void handleEvent(Idle, Start) { start_flag_ = false; }
-
-//   // #########################
-//   //          Check
-//   // #########################
-
-//   bool checkEvent(Check, Stop) { return buf_.empty(); }
-//   void handleEvent(Check, Stop) {}
-
-//   bool checkEvent(Check, Start) { return !buf_.empty(); }
-//   void handleEvent(Check, Start) {
-//     if (!readRegAsync(map_.getAddress<FdcConf>())) {
-//       // TODO: log
-//     }
-//   }
-
-//   // #########################
-//   //       WaitFdcFlag
-//   // #########################
-//   bool checkEvent(WaitFdcFlag, NotReady) {
-//     if (readDone()) {
-//       autovalue = getRegValue();
-//       FdcConf fdc{reg};
-//       return !fdc.get<FdcConf::Map::Done1>();
-//     }
-//     return false;
-//   }
-//   void handleEvent(WaitFdcFlag, NotReady) {}
-
-//   bool checkEvent(WaitFdcFlag, Start) {
-//     if (readDone()) {
-//       autovalue = getRegValue();
-//       FdcConf fdc{reg};
-//       return fdc.get<FdcConf::Map::Done1>();
-//     }
-//     return false;
-//   }
-//   void handleEvent(WaitFdcFlag, Start) {
-//     if (!readDataAsync(map_.getAddress<Meas1>())) {
-//       // TODO: log
-//     }
-//   }
-
-//   // #########################
-//   //        WaitMeas
-//   // #########################
-//   bool checkEvent(WaitMeas, Start) { return readDone(); }
-//   void handleEvent(WaitMeas, Start) {
-//     auto meas1 = getDataValue();
-//     if (!buf_.empty()) {
-//       buf_[0] = meas1;
-//       buf_ = buf_.subspan(1);
-//     }
-//   }
-
-//   friend class m::Fsm_v4<Fdc1004Reader, Idle, m::Transition<Idle, Start,
-//   Check>,
-
-//                          m::Transition<Check, Stop, Idle>,
-//                          m::Transition<Check, Start, WaitFdcFlag>,
-
-//                          m::Transition<WaitFdcFlag, NotReady, Check>,
-//                          m::Transition<WaitFdcFlag, Start, WaitMeas>,
-
-//                          m::Transition<WaitMeas, Start, Check>>;
-// };
 }  // namespace m::ic
 #endif  // FDC1004_HPP

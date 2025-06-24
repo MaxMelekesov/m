@@ -10,16 +10,10 @@
 #ifndef IC_SYNC_HPP
 #define IC_SYNC_HPP
 
-#include <IIO_Async.hpp>
-#include <ITime.hpp>
 #include <StaticMap.hpp>
-#include <Timeout.hpp>
 #include <TupleContains.hpp>
-#include <Us.hpp>
 #include <concepts>
-#include <cstdint>
 #include <optional>
-#include <span>
 
 namespace m {
 
@@ -32,36 +26,20 @@ concept CIcInfo = requires {
 
 template <typename T, typename Reg>
 concept CIcSync = requires(T t, Reg reg) {
-  { t.template getWriteBuf<Reg>(reg) } -> std::same_as<std::span<uint8_t>>;
-  { t.template getReadBuf<Reg>() } -> std::same_as<std::span<volatile uint8_t>>;
-  { t.template getReg<Reg>() } -> std::same_as<Reg>;
+  { t.template writeImpl<Reg>(reg) } -> std::same_as<bool>;
+  { t.template readImpl<Reg>() } -> std::same_as<std::optional<Reg>>;
 };
 
-template <typename Derived, m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
-          m::ifc::CIO_Async Io, CIcInfo IcInfo>
+template <typename Derived, CIcInfo IcInfo>
 class IcSync {
  public:
-  IcSync(Time& time, Io& io, TimeUnit add_timeout)
-      : time_(time), io_(io), add_timeout_(add_timeout) {}
-
   template <typename Reg>
     requires m::tuple_contains<Reg, typename IcInfo::Regs>
   bool write(Reg reg) {
     static_assert(CIcSync<Derived, Reg>,
                   "Derived must implement CIcSync interface");
 
-    auto span = static_cast<Derived*>(this)->template getWriteBuf<Reg>(reg);
-
-    if (!io_.writeAsync(span)) return false;
-
-    if (!timeout_.execWithTimeout(
-            [&]() { return io_.writeDone(); },
-            span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
-                add_timeout_)) {
-      return false;
-    }
-
-    return true;
+    return static_cast<Derived*>(this)->template writeImpl<Reg>(reg);
   }
 
   template <typename Reg>
@@ -70,25 +48,8 @@ class IcSync {
     static_assert(CIcSync<Derived, Reg>,
                   "Derived must implement CIcSync interface");
 
-    auto span = static_cast<Derived*>(this)->template getReadBuf<Reg>();
-
-    if (!io_.readAsync(span)) return std::nullopt;
-
-    if (!timeout_.execWithTimeout(
-            [&]() { return io_.readDone(); },
-            span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
-                add_timeout_)) {
-      return std::nullopt;
-    }
-
-    return static_cast<Derived*>(this)->template getReg<Reg>();
+    return static_cast<Derived*>(this)->template readImpl<Reg>();
   }
-
- private:
-  Time& time_;
-  Io& io_;
-  TimeUnit add_timeout_;
-  m::Timeout<TimeUnit> timeout_{time_};
 };
 
 }  // namespace m

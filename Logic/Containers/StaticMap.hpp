@@ -52,6 +52,8 @@ constexpr bool is_narrowing_convertible() {
 template <typename ValueType, CPairs... Pairs>
   requires(is_narrowing_convertible<ValueType, Pairs::value>() && ...)
 struct StaticMap {
+  using StorageType = ValueType;
+
   template <typename Key>
     requires((std::is_same_v<Key, typename Pairs::Key> || ...))
   static constexpr ValueType value() {

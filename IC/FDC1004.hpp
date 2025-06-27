@@ -10,6 +10,7 @@
 #ifndef FDC1004_HPP
 #define FDC1004_HPP
 
+#include <DebugLogger.hpp>
 #include <Fsm_v4.hpp>
 #include <IIO_Async.hpp>
 #include <ITime.hpp>
@@ -226,9 +227,9 @@ struct Fdc1004 {
 
 template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
           m::ifc::CIO_Async Io>
-class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, Fdc1004> {
+class Fdc1004Sync : public IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
  public:
-  Fdc1004Ic(Time& time, Io& io, TimeUnit add_timeout)
+  Fdc1004Sync(Time& time, Io& io, TimeUnit add_timeout)
       : time_(time), io_(io), add_timeout_(add_timeout) {}
 
  private:
@@ -304,7 +305,271 @@ class Fdc1004Ic : public IcSync<Fdc1004Ic<TimeUnit, Time, Io>, Fdc1004> {
     return true;
   }
 
-  friend class IcSync<Fdc1004Ic<TimeUnit, Time, Io>, Fdc1004>;
+  friend class IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004>;
+};
+
+namespace {
+struct Idle : public m::State {};
+struct Wait : public m::State {};
+struct WaitReg : public m::State {};
+
+struct WriteAddr : public m::Event {};
+struct ReadReg : public m::Event {};
+struct ReadDone : public m::Event {};
+
+template <m::ifc::CIO_Async Io>
+class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
+                                    m::Transition<Idle, WriteAddr, Wait>,
+
+                                    m::Transition<Wait, ReadReg, WaitReg>,
+
+                                    m::Transition<WaitReg, ReadDone, Idle>
+
+                                    > {
+ public:
+  FsmReadReg(Io& io) : io_(io) {}
+
+  void handle() { this->checkEvents(); }
+
+  bool start(uint8_t addr) {
+    if (!this->template isInState<Idle>()) {
+      return false;
+    }
+
+    start_ = true;
+    addr_ = addr;
+    reg_ = std::nullopt;
+    return true;
+  }
+
+  std::optional<volatile uint16_t> getReg() { return reg_; }
+
+ private:
+  Io& io_;
+
+  uint8_t addr_ = 0;
+  std::optional<volatile uint16_t> reg_;
+  bool start_ = false;
+
+  std::array<volatile uint8_t, 3> read_buf_;
+  std::array<uint8_t, 2> write_buf_;
+
+  constexpr static uint8_t Addr = 0x50;
+
+  bool checkEvent(Idle, WriteAddr) { return start_; }
+  void handleEvent(Idle, WriteAddr) {
+    start_ = false;
+    writeAddr(addr_);
+  }
+
+  bool checkEvent(Wait, ReadReg) { return io_.writeDone(); }
+  void handleEvent(Wait, ReadReg) { readReg(); }
+
+  bool checkEvent(WaitReg, ReadDone) { return io_.readDone(); }
+  void handleEvent(WaitReg, ReadDone) {
+    reg_ = (static_cast<uint16_t>(read_buf_[1]) << 8) | read_buf_[2];
+  }
+
+  // void onEvent(WriteAddr) {
+  //   m::DebugLogger<>::getInstance().add("WriteAddr event");
+  // }
+  // void onEvent(ReadReg) {
+  //   m::DebugLogger<>::getInstance().add("ReadReg event");
+  // }
+  // void onEvent(ReadDone) {
+  //   m::DebugLogger<>::getInstance().add("ReadDone event");
+  // }
+
+  // void onStateTransition(Idle) {
+  //   m::DebugLogger<>::getInstance().add("State: Idle");
+  // }
+  // void onStateTransition(Wait) {
+  //   m::DebugLogger<>::getInstance().add("State: Wait");
+  // }
+  // void onStateTransition(WaitReg) {
+  //   m::DebugLogger<>::getInstance().add("State: WaitReg");
+  // }
+
+  friend m::Fsm_v4<FsmReadReg<Io>, Idle, m::Transition<Idle, WriteAddr, Wait>,
+                   m::Transition<Wait, ReadReg, WaitReg>,
+                   m::Transition<WaitReg, ReadDone, Idle>>;
+
+  void writeAddr(uint8_t reg_addr) {
+    write_buf_[0] = Addr;
+    write_buf_[1] = reg_addr;
+
+    io_.writeAsync(write_buf_);
+  }
+
+  void readReg() {
+    read_buf_[0] = Addr;
+    read_buf_[1] = 0;
+    read_buf_[2] = 0;
+
+    io_.readAsync(read_buf_);
+  }
+};
+
+}  // namespace
+
+namespace {
+struct Check : public m::State {};
+struct WaitFdcConf : public m::State {};
+struct WaitMeas1 : public m::State {};
+struct WaitMeas2 : public m::State {};
+
+struct Startup : public m::Event {};
+struct Stop : public m::Event {};
+struct ReadFdcConf : public m::Event {};
+struct ReadMeas1 : public m::Event {};
+struct ReadMeas2 : public m::Event {};
+}  // namespace
+
+template <m::ifc::CIO_Async Io>
+class Fdc1004Reader
+    : public m::Fsm_v4<Fdc1004Reader<Io>, Idle,
+                       m::Transition<Idle, Startup, Check>,
+
+                       m::Transition<Check, Stop, Idle>,
+                       m::Transition<Check, ReadFdcConf, WaitFdcConf>,
+
+                       m::Transition<WaitFdcConf, ReadFdcConf, WaitFdcConf>,
+                       m::Transition<WaitFdcConf, ReadMeas1, WaitMeas1>,
+
+                       m::Transition<WaitMeas1, ReadMeas2, WaitMeas2>,
+
+                       m::Transition<WaitMeas2, ReadDone, Check>
+
+                       > {
+ public:
+  Fdc1004Reader(Io& io) : io_(io) {}
+
+  void handle() { this->checkEvents(); }
+
+  bool start(std::span<uint32_t> data) {
+    if (!data_.empty()) return false;
+
+    data_ = data;
+    start_ = true;
+    return true;
+  }
+
+  bool readDone() { return data_.empty(); }
+
+ private:
+  Io& io_;
+  bool start_ = false;
+  std::span<uint32_t> data_;
+
+  constexpr static uint8_t Addr = 0x50;
+
+  uint32_t meas_ = 0;
+
+  FsmReadReg<Io> fsm_read_reg_{io_};
+
+  // Idle
+  bool checkEvent(Idle, Startup) { return start_; }
+  void handleEvent(Idle, Startup) { start_ = false; }
+
+  // Check
+  bool checkEvent(Check, Stop) { return data_.empty(); }
+  void handleEvent(Check, Stop) {}
+
+  bool checkEvent(Check, ReadFdcConf) { return !data_.empty(); }
+  void handleEvent(Check, ReadFdcConf) {
+    fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::FdcConf>());
+  }
+
+  // WaitFdcConf
+  bool checkEvent(WaitFdcConf, ReadFdcConf) {
+    fsm_read_reg_.handle();
+    if (auto value = fsm_read_reg_.getReg(); value) {
+      Fdc1004::FdcConf fdc_conf{value.value()};
+      return !fdc_conf.value.get<Fdc1004::FdcConf::Done1>();
+    }
+    return false;
+  }
+  void handleEvent(WaitFdcConf, ReadFdcConf) {
+    fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::FdcConf>());
+  }
+
+  bool checkEvent(WaitFdcConf, ReadMeas1) {
+    fsm_read_reg_.handle();
+    if (auto value = fsm_read_reg_.getReg(); value) {
+      Fdc1004::FdcConf fdc_conf{value.value()};
+      return fdc_conf.value.get<Fdc1004::FdcConf::Done1>();
+    }
+    return false;
+  }
+  void handleEvent(WaitFdcConf, ReadMeas1) {
+    fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::Meas1Msb>());
+  }
+
+  // WaitMeas1
+  bool checkEvent(WaitMeas1, ReadMeas2) {
+    fsm_read_reg_.handle();
+    return fsm_read_reg_.getReg().has_value();
+  }
+  void handleEvent(WaitMeas1, ReadMeas2) {
+    meas_ = static_cast<uint32_t>(fsm_read_reg_.getReg().value()) << 16;
+    fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::Meas1Lsb>());
+  }
+
+  // WaitMeas2
+  bool checkEvent(WaitMeas2, ReadDone) {
+    fsm_read_reg_.handle();
+    return fsm_read_reg_.getReg().has_value();
+  }
+  void handleEvent(WaitMeas2, ReadDone) {
+    meas_ |= static_cast<uint32_t>(fsm_read_reg_.getReg().value());
+    data_[0] = meas_;
+    data_ = data_.subspan(1);
+  }
+
+  // void onEvent(Startup) {
+  //   m::DebugLogger<>::getInstance().add("Startup event");
+  // }
+  // void onEvent(Stop) { m::DebugLogger<>::getInstance().add("Stop event"); }
+  // void onEvent(ReadFdcConf) {
+  //   m::DebugLogger<>::getInstance().add("ReadFdcConf event");
+  // }
+  // void onEvent(ReadMeas1) {
+  //   m::DebugLogger<>::getInstance().add("ReadMeas1 event");
+  // }
+  // void onEvent(ReadMeas2) {
+  //   m::DebugLogger<>::getInstance().add("ReadMeas2 event");
+  // }
+
+  // void onStateTransition(Idle) {
+  //   m::DebugLogger<>::getInstance().add("State: Idle");
+  // }
+  // void onStateTransition(Check) {
+  //   m::DebugLogger<>::getInstance().add("State: Check");
+  // }
+  // void onStateTransition(WaitFdcConf) {
+  //   m::DebugLogger<>::getInstance().add("State: WaitFdcConf");
+  // }
+  // void onStateTransition(WaitMeas1) {
+  //   m::DebugLogger<>::getInstance().add("State: WaitMeas1");
+  // }
+  // void onStateTransition(WaitMeas2) {
+  //   m::DebugLogger<>::getInstance().add("State: WaitMeas2");
+  // }
+
+  friend m::Fsm_v4<Fdc1004Reader<Io>, Idle, m::Transition<Idle, Startup, Check>,
+
+                   m::Transition<Check, Stop, Idle>,
+                   m::Transition<Check, ReadFdcConf, WaitFdcConf>,
+
+                   m::Transition<WaitFdcConf, ReadFdcConf, WaitFdcConf>,
+                   m::Transition<WaitFdcConf, ReadMeas1, WaitMeas1>,
+
+                   m::Transition<WaitMeas1, ReadMeas2, WaitMeas2>,
+
+                   m::Transition<WaitMeas2, ReadDone, Check>
+
+                   >;
 };
 }  // namespace m::ic
+
 #endif  // FDC1004_HPP

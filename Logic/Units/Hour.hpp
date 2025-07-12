@@ -11,76 +11,19 @@
 #ifndef HOUR_HPP
 #define HOUR_HPP
 
-#include <compare>
+#include <Unit.hpp>
 #include <type_traits>
 
 template <typename T>
-  requires std::is_arithmetic_v<T>
-class Hour {
+struct Hour : public Unit<Hour<T>, T> {
  public:
-  using type = T;
-
-  constexpr Hour() : value_(0) {}
-  constexpr explicit Hour(type value) : value_(value) {}
-
-  constexpr auto value() const { return value_; }
-
-  constexpr Hour operator-() const { return Hour{-value_}; }
-
-  constexpr Hour& operator+=(const Hour& other) {
-    value_ += other.value_;
-    return *this;
-  }
-
-  constexpr Hour& operator-=(const Hour& other) {
-    value_ -= other.value_;
-    return *this;
-  }
-
-  constexpr Hour& operator*=(type scalar) {
-    value_ *= scalar;
-    return *this;
-  }
-
-  constexpr Hour& operator/=(type scalar) {
-    value_ /= scalar;
-    return *this;
-  }
-
-  friend constexpr Hour operator+(Hour lhs, const Hour& rhs) {
-    lhs += rhs;
-    return lhs;
-  }
-
-  friend constexpr Hour operator-(Hour lhs, const Hour& rhs) {
-    lhs -= rhs;
-    return lhs;
-  }
-
-  friend constexpr Hour operator*(Hour lhs, type scalar) {
-    lhs *= scalar;
-    return lhs;
-  }
-
-  friend constexpr Hour operator*(type scalar, Hour rhs) {
-    rhs *= scalar;
-    return rhs;
-  }
-
-  friend constexpr Hour operator/(Hour lhs, type scalar) {
-    lhs /= scalar;
-    return lhs;
-  }
-
-  friend constexpr auto operator<=>(const Hour& lhs, const Hour& rhs) = default;
-
-  type value_;
+  using Unit<Hour<T>, T>::Unit;
 };
 
 namespace m::ifc {
 template <typename T>
-concept CHour =
-    requires { typename T::type; } && std::is_same_v<T, Hour<typename T::type>>;
+concept CHour = requires { typename T::type; } &&
+                std::is_base_of_v<Unit<T, typename T::type>, T>;
 }  // namespace m::ifc
 
-#endif  // HOURS_HPP
+#endif  // HOUR_HPP

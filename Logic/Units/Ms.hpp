@@ -8,79 +8,22 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef MS_H
-#define MS_H
+#ifndef MS_HPP
+#define MS_HPP
 
-#include <compare>
+#include <Unit.hpp>
 #include <type_traits>
 
 template <typename T>
-  requires std::is_arithmetic_v<T>
-class Ms {
+struct Ms : public Unit<Ms<T>, T> {
  public:
-  using type = T;
-
-  constexpr Ms() : value_(0) {}
-  constexpr explicit Ms(type value) : value_(value) {}
-
-  constexpr auto value() const { return value_; }
-
-  constexpr Ms operator-() const { return Ms{-value_}; }
-
-  constexpr Ms& operator+=(const Ms& other) {
-    value_ += other.value_;
-    return *this;
-  }
-
-  constexpr Ms& operator-=(const Ms& other) {
-    value_ -= other.value_;
-    return *this;
-  }
-
-  constexpr Ms& operator*=(type scalar) {
-    value_ *= scalar;
-    return *this;
-  }
-
-  constexpr Ms& operator/=(type scalar) {
-    value_ /= scalar;
-    return *this;
-  }
-
-  friend constexpr Ms operator+(Ms lhs, const Ms& rhs) {
-    lhs += rhs;
-    return lhs;
-  }
-
-  friend constexpr Ms operator-(Ms lhs, const Ms& rhs) {
-    lhs -= rhs;
-    return lhs;
-  }
-
-  friend constexpr Ms operator*(Ms lhs, type scalar) {
-    lhs *= scalar;
-    return lhs;
-  }
-
-  friend constexpr Ms operator*(type scalar, Ms rhs) {
-    rhs *= scalar;
-    return rhs;
-  }
-
-  friend constexpr Ms operator/(Ms lhs, type scalar) {
-    lhs /= scalar;
-    return lhs;
-  }
-
-  friend constexpr auto operator<=>(const Ms& lhs, const Ms& rhs) = default;
-
-  type value_;
+  using Unit<Ms<T>, T>::Unit;
 };
 
 namespace m::ifc {
 template <typename T>
-concept CMs =
-    requires { typename T::type; } && std::is_same_v<T, Ms<typename T::type>>;
+concept CMs = requires { typename T::type; } &&
+              std::is_base_of_v<Unit<T, typename T::type>, T>;
 }  // namespace m::ifc
 
-#endif  // MS_H
+#endif  // MS_HPP

@@ -11,75 +11,19 @@
 #ifndef BPS_HPP
 #define BPS_HPP
 
-#include <compare>
+#include <Unit.hpp>
 #include <type_traits>
 
 template <typename T>
-  requires std::is_arithmetic_v<T>
-// Bytes per second
-class Bps {
+struct Bps : public Unit<Bps<T>, T> {
  public:
-  using type = T;
-
-  constexpr Bps() : value_(0) {}
-  constexpr explicit Bps(type value) : value_(value) {}
-  constexpr auto value() const { return value_; }
-
-  constexpr Bps operator-() const { return Bps{-value_}; }
-
-  constexpr Bps& operator+=(const Bps& other) {
-    value_ += other.value_;
-    return *this;
-  }
-
-  constexpr Bps& operator-=(const Bps& other) {
-    value_ -= other.value_;
-    return *this;
-  }
-
-  constexpr Bps& operator*=(type scalar) {
-    value_ *= scalar;
-    return *this;
-  }
-
-  constexpr Bps& operator/=(type scalar) {
-    value_ /= scalar;
-    return *this;
-  }
-
-  friend constexpr Bps operator+(Bps lhs, const Bps& rhs) {
-    lhs += rhs;
-    return lhs;
-  }
-
-  friend constexpr Bps operator-(Bps lhs, const Bps& rhs) {
-    lhs -= rhs;
-    return lhs;
-  }
-
-  friend constexpr Bps operator*(Bps lhs, type scalar) {
-    lhs *= scalar;
-    return lhs;
-  }
-
-  friend constexpr Bps operator*(type scalar, Bps rhs) {
-    rhs *= scalar;
-    return rhs;
-  }
-
-  friend constexpr Bps operator/(Bps lhs, type scalar) {
-    lhs /= scalar;
-    return lhs;
-  }
-
-  friend constexpr auto operator<=>(const Bps& lhs, const Bps& rhs) = default;
-
-  type value_;
+  using Unit<Bps<T>, T>::Unit;
 };
 
 namespace m::ifc {
 template <typename T>
-concept CBps =
-    requires { typename T::type; } && std::is_same_v<T, Bps<typename T::type>>;
+concept CBps = requires { typename T::type; } &&
+               std::is_base_of_v<Unit<T, typename T::type>, T>;
 }  // namespace m::ifc
+
 #endif  // BPS_HPP

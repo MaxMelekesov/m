@@ -8,73 +8,22 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef CELSIUS_H
-#define CELSIUS_H
+#ifndef CELSIUS_HPP
+#define CELSIUS_HPP
 
-#include <compare>
+#include <Unit.hpp>
 #include <type_traits>
 
 template <typename T>
-  requires std::is_arithmetic_v<T>
-class Celsius {
+struct Celsius : public Unit<Celsius<T>, T> {
  public:
-  using type = T;
-
-  constexpr Celsius() : value_(0) {}
-  constexpr explicit Celsius(type value) : value_(value) {}
-  constexpr auto value() const { return value_; }
-
-  constexpr Celsius operator-() const { return Celsius{-value_}; }
-
-  constexpr Celsius& operator+=(const Celsius& other) {
-    value_ += other.value_;
-    return *this;
-  }
-
-  constexpr Celsius& operator-=(const Celsius& other) {
-    value_ -= other.value_;
-    return *this;
-  }
-
-  constexpr Celsius& operator*=(type scalar) {
-    value_ *= scalar;
-    return *this;
-  }
-
-  constexpr Celsius& operator/=(type scalar) {
-    value_ /= scalar;
-    return *this;
-  }
-
-  friend constexpr Celsius operator+(Celsius lhs, const Celsius& rhs) {
-    lhs += rhs;
-    return lhs;
-  }
-
-  friend constexpr Celsius operator-(Celsius lhs, const Celsius& rhs) {
-    lhs -= rhs;
-    return lhs;
-  }
-
-  friend constexpr Celsius operator*(Celsius lhs, type scalar) {
-    lhs *= scalar;
-    return lhs;
-  }
-
-  friend constexpr Celsius operator*(type scalar, Celsius rhs) {
-    rhs *= scalar;
-    return rhs;
-  }
-
-  friend constexpr Celsius operator/(Celsius lhs, type scalar) {
-    lhs /= scalar;
-    return lhs;
-  }
-
-  friend constexpr auto operator<=>(const Celsius& lhs,
-                                    const Celsius& rhs) = default;
-
-  type value_;
+  using Unit<Celsius<T>, T>::Unit;
 };
 
-#endif  // CELSIUS_H
+namespace m::ifc {
+template <typename T>
+concept CCelsius = requires { typename T::type; } &&
+                   std::is_base_of_v<Unit<T, typename T::type>, T>;
+}  // namespace m::ifc
+
+#endif  // CELSIUS_HPP

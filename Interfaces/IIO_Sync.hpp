@@ -11,7 +11,7 @@
 #ifndef IIO_SYNC_HPP
 #define IIO_SYNC_HPP
 
-#include <BPs.hpp>
+#include <Bps.hpp>
 #include <cstdint>
 #include <span>
 

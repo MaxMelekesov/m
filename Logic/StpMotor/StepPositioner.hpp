@@ -59,9 +59,17 @@ class Mover
 
   void handle() { checkEvents(); }
 
-  uint32_t addSteps(uint32_t value) {
-    delta_steps_ = value;
-    return value;
+  int32_t addSteps(int32_t value) {
+    if (value >= 0) {
+      delta_steps_ = value;
+      return value;
+    } else {
+      uint32_t deacc_steps = std::roundf(ac_.st(v_index_));
+      uint32_t temp = target_steps_ - deacc_steps;
+      delta_steps_ = -std::min(temp, static_cast<uint32_t>(std::abs(value)));
+
+      return delta_steps_;
+    }
   }
 
   bool done() {
@@ -83,7 +91,7 @@ class Mover
   SAccCurve& ac_;
 
   uint32_t target_steps_ = 0;
-  uint32_t delta_steps_ = 0;
+  int32_t delta_steps_ = 0;
 
   Ms<uint32_t> v_index_{0};
   Ms<uint32_t> next_v_index_{0};

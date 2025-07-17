@@ -18,27 +18,33 @@ namespace m {
 
 class SAccCurve {
  public:
-  SAccCurve(Ms<uint32_t> max_acc_t) : Max_Acc_T_(max_acc_t) {}
+  SAccCurve(Ms<uint32_t> acc_t_limit, uint32_t min_v_limit,
+            uint32_t max_v_limit)
+      : Acc_T_Limit_(acc_t_limit),
+        Min_V_Limit_(min_v_limit),
+        Max_V_Limit_(max_v_limit) {}
 
   bool setMinV(float value) {
-    if (value < 1.0f || value >= max_v_) return false;
+    if (value < Min_V_Limit_ || value >= max_v_) return false;
     min_v_ = value;
+    update_cache_ = true;
     return true;
   }
   float getMinV() const { return min_v_; }
 
   bool setMaxV(float value) {
-    if (value <= min_v_ || value > 500'000.0f) return false;
+    if (value <= min_v_ || value > Max_V_Limit_) return false;
     max_v_ = value;
+    update_cache_ = true;
     return true;
   }
   float getMaxV() const { return max_v_; }
 
   bool setAccT(Ms<uint32_t> ms) {
-    if (ms < Ms<uint32_t>{10} || ms > Max_Acc_T_) return false;
+    if (ms < Ms<uint32_t>{10} || ms > Acc_T_Limit_) return false;
 
     acc_t_ = ms;
-
+    update_cache_ = true;
     return true;
   }
   Ms<uint32_t> getAccT() { return acc_t_; }
@@ -74,11 +80,18 @@ class SAccCurve {
   };
 
  private:
-  const Ms<uint32_t> Max_Acc_T_;
+  const Ms<uint32_t> Acc_T_Limit_;
+  const uint32_t Min_V_Limit_;
+  const uint32_t Max_V_Limit_;
 
-  float min_v_ = 1'000.0f;
-  float max_v_ = 4'000.0f;
-  Ms<uint32_t> acc_t_{500};
+  float min_v_ = Min_V_Limit_;
+  float max_v_ = Max_V_Limit_;
+  Ms<uint32_t> acc_t_ = Acc_T_Limit_;
+
+  bool update_cache_ = true;
+
+  std::array<Ms<uint32_t>, 4> cache_key_;
+  std::array<float, 4> cache_;
 };
 }  // namespace m
 

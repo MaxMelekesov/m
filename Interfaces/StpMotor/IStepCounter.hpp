@@ -11,6 +11,7 @@
 #ifndef ISTEP_COUNTER_HPP
 #define ISTEP_COUNTER_HPP
 
+#include <concepts>
 #include <cstdint>
 
 namespace m::ifc {

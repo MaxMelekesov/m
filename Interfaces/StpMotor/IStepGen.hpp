@@ -11,7 +11,6 @@
 #ifndef ISTEP_GEN_HPP
 #define ISTEP_GEN_HPP
 
-#include <Us.hpp>
 #include <cstdint>
 #include <functional>
 
@@ -22,7 +21,7 @@ class IStepGen {
   virtual ~IStepGen() = default;
 
   struct Step {
-    Us<uint32_t> period;
+    uint32_t freq;
     uint32_t steps;
   };
 
@@ -32,7 +31,7 @@ class IStepGen {
   virtual bool start() = 0;
   virtual bool stop() = 0;
   virtual bool running() const = 0;
-  virtual Us<uint32_t> maxPeriod() const = 0;
+  virtual uint32_t maxPeriod() const = 0;
   virtual uint32_t maxSteps() const = 0;
 };
 
@@ -42,7 +41,7 @@ concept CStepGen = requires(T gen, typename T::NextStepCallback cb) {
   { gen.start() } -> std::same_as<bool>;
   { gen.stop() } -> std::same_as<bool>;
   { gen.running() } -> std::same_as<bool>;
-  { gen.maxPeriod() } -> std::same_as<Us<uint32_t>>;
+  { gen.maxPeriod() } -> std::same_as<uint32_t>;
   { gen.maxSteps() } -> std::same_as<uint32_t>;
 };
 

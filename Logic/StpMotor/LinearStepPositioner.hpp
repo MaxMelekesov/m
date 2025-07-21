@@ -70,7 +70,7 @@ class LinearStepPositioner {
     }
 
     drv_.setMicrostep(DrvT::Microstep::M_8);
-  //  drv_.setEnable(1);
+    drv_.setEnable(1);
     time_.delay(Ms<uint32_t>{10});
 
     steps_to_load_ = std::abs(steps);

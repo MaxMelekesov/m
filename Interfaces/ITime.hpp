@@ -19,20 +19,20 @@ namespace m::ifc {
 template <typename T>
 class ITime {
  public:
-  using TimeUnit = T;
+  using UnitT = T;
 
   virtual ~ITime() {}
 
-  virtual void delay(TimeUnit value) = 0;
-  virtual TimeUnit getTick() = 0;
-  virtual TimeUnit getDiff(TimeUnit value) = 0;
+  virtual void delay(UnitT value) = 0;
+  virtual UnitT getTick() = 0;
+  virtual UnitT getDiff(UnitT value) = 0;
 };
 
-template <typename T, typename TimeUnit>
-concept CTime = requires(T t, TimeUnit value) {
+template <typename T, typename UnitT>
+concept CTime = requires(T t, UnitT value) {
   { t.delay(value) } -> std::same_as<void>;
-  { t.getTick() } -> std::same_as<TimeUnit>;
-  { t.getDiff(value) } -> std::same_as<TimeUnit>;
+  { t.getTick() } -> std::same_as<UnitT>;
+  { t.getDiff(value) } -> std::same_as<UnitT>;
 };
 
 static_assert(CTime<ITime<uint32_t>, uint32_t>,

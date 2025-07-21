@@ -15,17 +15,19 @@
 #include <IStepCounter.hpp>
 #include <IStepDriverCtrl.hpp>
 #include <IStepGen.hpp>
+#include <ITime.hpp>
+#include <Ms.hpp>
 #include <SAccCurve.hpp>
 #include <StpPositionerSettings.hpp>
 #include <cmath>
 #include <cstdint>
 #include <optional>
 
-#include "Ms.hpp"
-
 namespace m {
 
-// TODO: template & concepts
+template <typename TimeT>
+  requires m::ifc::CMs<typename TimeT::UnitT> &&
+           m::ifc::CTime<TimeT, typename TimeT::UnitT>
 class StepPositioner {
  private:
   using DrvT = m::ifc::IStepDriverCtrl<mA<uint32_t>>;
@@ -33,20 +35,33 @@ class StepPositioner {
   using GenT = m::ifc::IStepGen;
 
  public:
-  StepPositioner(DrvT& drv, CtrT& ctr, GenT& gen)
-      : drv_(drv), ctr_(ctr), gen_(gen) {
+  StepPositioner(TimeT& time, DrvT& drv, CtrT& ctr, GenT& gen)
+      : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
     gen_.setCallback([&]() {
-      loader_.handle();
-      if (loader_.done()) {
-        return GenT::Step{.freq = 0, .steps = 0};
-      }
-      if (auto part = loader_.nextPart(); part) {
-        auto [v, steps] = part.value();
+      while (1) {
+        loader_.handle();
+        if (loader_.done()) {
+          return GenT::Step{.freq = 0, .steps = 0};
+        }
+        if (auto part = loader_.nextPart(); part) {
+          auto [v, steps] = part.value();
 
-        return GenT::Step{.freq = v, .steps = steps};
+          return GenT::Step{.freq = v, .steps = steps};
+        }
       }
-      return GenT::Step{.freq = 0, .steps = 0};
     });
+
+    ac_.setAccT(Ms<uint32_t>{400});
+    ac_.setMinV(1'000);
+    ac_.setMaxV(7'000);
+  }
+
+  bool moving() { return gen_.running(); }
+
+  void handle() {
+    if (!moving()) {
+      drv_.setEnable(0);
+    }
   }
 
   bool addSteps(int32_t steps) {
@@ -60,10 +75,20 @@ class StepPositioner {
       ctr_.setDirection(CtrT::Dir::Down);
     }
 
+    loader_.addSteps(steps);
+
+    drv_.setMicrostep(DrvT::Microstep::M_8);
+    drv_.setEnable(1);
+    time_.delay(Ms<uint32_t>{10});
+
+    if (!ctr_.start()) return false;
+    if (!gen_.start()) return false;
+
     return true;
   }
 
  private:
+  TimeT& time_;
   DrvT& drv_;
   CtrT& ctr_;
   GenT& gen_;
@@ -104,7 +129,7 @@ class StepPositioner {
    public:
     StepsLoader(SAccCurve& ac) : ac_(ac) {}
 
-    void handle() { checkEvents(); }
+    void handle() { this->checkEvents(); }
 
     int32_t addSteps(int32_t value) {
       if (value >= 0) {
@@ -120,7 +145,8 @@ class StepPositioner {
     }
 
     bool done() {
-      return isInState<Idle>() && target_steps_ == 0 && delta_steps_ == 0;
+      return this->template isInState<Idle>() && target_steps_ == 0 &&
+             delta_steps_ == 0;
     }
 
     struct Part {

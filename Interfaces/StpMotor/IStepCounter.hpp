@@ -26,8 +26,6 @@ class IStepCounter {
 
   virtual bool running() = 0;
 
-  virtual bool reset() = 0;
-
   enum class Dir : uint8_t { Up = 0, Down };
   enum class DirInversion : uint8_t { No = 0, Yes };
 
@@ -47,7 +45,6 @@ concept CStepCounter = requires(T counter, typename T::Dir dir,
   { counter.start() } -> std::same_as<bool>;
   { counter.stop() } -> std::same_as<bool>;
   { counter.running() } -> std::same_as<bool>;
-  { counter.reset() } -> std::same_as<bool>;
   { counter.setDirection(dir) } -> std::same_as<bool>;
   { counter.getDirection() } -> std::same_as<typename T::Dir>;
   { counter.setDirectionInversion(inv) } -> std::same_as<bool>;

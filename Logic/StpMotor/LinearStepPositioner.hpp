@@ -69,15 +69,22 @@ class LinearStepPositioner {
       ctr_.setDirection(CtrT::Dir::Down);
     }
 
-    drv_.setMicrostep(DrvT::Microstep::M_8);
+    drv_.setMicrostep(DrvT::Microstep::M_16);
     drv_.setEnable(1);
     time_.delay(Ms<uint32_t>{10});
 
     steps_to_load_ = std::abs(steps);
 
-    if (!ctr_.start()) return false;
+    if (!ctr_.running()) {
+      if (!ctr_.start()) return false;
+    }
     if (!gen_.start()) return false;
 
+    return true;
+  }
+
+  bool softStop() {
+    steps_to_load_ = 0;
     return true;
   }
 

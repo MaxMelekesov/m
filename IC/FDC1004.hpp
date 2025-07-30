@@ -522,6 +522,7 @@ class Fdc1004Reader
   }
   void handleEvent(WaitMeas2, ReadDone) {
     meas_ |= static_cast<uint32_t>(fsm_read_reg_.getReg().value());
+    meas_ = meas_ >> 8;
     data_[0] = meas_;
     data_ = data_.subspan(1);
   }

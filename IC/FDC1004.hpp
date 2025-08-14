@@ -308,14 +308,25 @@ class Fdc1004Sync : public IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
   friend class IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004>;
 };
 
-namespace {
+namespace detail {
 struct Idle : public m::State {};
+struct Check : public m::State {};
+struct WaitFdcConf : public m::State {};
+struct WaitMeas1 : public m::State {};
+struct WaitMeas2 : public m::State {};
+
+struct Startup : public m::Event {};
+struct Stop : public m::Event {};
+struct ReadFdcConf : public m::Event {};
+struct ReadMeas1 : public m::Event {};
+struct ReadMeas2 : public m::Event {};
+struct ReadDone : public m::Event {};
+
 struct Wait : public m::State {};
 struct WaitReg : public m::State {};
 
 struct WriteAddr : public m::Event {};
 struct ReadReg : public m::Event {};
-struct ReadDone : public m::Event {};
 
 template <m::ifc::CIO_Async Io>
 class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
@@ -409,38 +420,29 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
     io_.readAsync(read_buf_);
   }
 };
-
-}  // namespace
-
-namespace {
-struct Check : public m::State {};
-struct WaitFdcConf : public m::State {};
-struct WaitMeas1 : public m::State {};
-struct WaitMeas2 : public m::State {};
-
-struct Startup : public m::Event {};
-struct Stop : public m::Event {};
-struct ReadFdcConf : public m::Event {};
-struct ReadMeas1 : public m::Event {};
-struct ReadMeas2 : public m::Event {};
-}  // namespace
+}  // namespace detail
 
 template <m::ifc::CIO_Async Io>
 class Fdc1004Reader
-    : public m::Fsm_v4<Fdc1004Reader<Io>, Idle,
-                       m::Transition<Idle, Startup, Check>,
+    : public m::Fsm_v4<
+          Fdc1004Reader<Io>, detail::Idle,
+          m::Transition<detail::Idle, detail::Startup, detail::Check>,
 
-                       m::Transition<Check, Stop, Idle>,
-                       m::Transition<Check, ReadFdcConf, WaitFdcConf>,
+          m::Transition<detail::Check, detail::Stop, detail::Idle>,
+          m::Transition<detail::Check, detail::ReadFdcConf,
+                        detail::WaitFdcConf>,
 
-                       m::Transition<WaitFdcConf, ReadFdcConf, WaitFdcConf>,
-                       m::Transition<WaitFdcConf, ReadMeas1, WaitMeas1>,
+          m::Transition<detail::WaitFdcConf, detail::ReadFdcConf,
+                        detail::WaitFdcConf>,
+          m::Transition<detail::WaitFdcConf, detail::ReadMeas1,
+                        detail::WaitMeas1>,
 
-                       m::Transition<WaitMeas1, ReadMeas2, WaitMeas2>,
+          m::Transition<detail::WaitMeas1, detail::ReadMeas2,
+                        detail::WaitMeas2>,
 
-                       m::Transition<WaitMeas2, ReadDone, Check>
+          m::Transition<detail::WaitMeas2, detail::ReadDone, detail::Check>
 
-                       > {
+          > {
  public:
   Fdc1004Reader(Io& io) : io_(io) {}
 
@@ -465,23 +467,23 @@ class Fdc1004Reader
 
   uint32_t meas_ = 0;
 
-  FsmReadReg<Io> fsm_read_reg_{io_};
+  detail::FsmReadReg<Io> fsm_read_reg_{io_};
 
   // Idle
-  bool checkEvent(Idle, Startup) { return start_; }
-  void handleEvent(Idle, Startup) { start_ = false; }
+  bool checkEvent(detail::Idle, detail::Startup) { return start_; }
+  void handleEvent(detail::Idle, detail::Startup) { start_ = false; }
 
   // Check
-  bool checkEvent(Check, Stop) { return data_.empty(); }
-  void handleEvent(Check, Stop) {}
+  bool checkEvent(detail::Check, detail::Stop) { return data_.empty(); }
+  void handleEvent(detail::Check, detail::Stop) {}
 
-  bool checkEvent(Check, ReadFdcConf) { return !data_.empty(); }
-  void handleEvent(Check, ReadFdcConf) {
+  bool checkEvent(detail::Check, detail::ReadFdcConf) { return !data_.empty(); }
+  void handleEvent(detail::Check, detail::ReadFdcConf) {
     fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::FdcConf>());
   }
 
   // WaitFdcConf
-  bool checkEvent(WaitFdcConf, ReadFdcConf) {
+  bool checkEvent(detail::WaitFdcConf, detail::ReadFdcConf) {
     fsm_read_reg_.handle();
     if (auto value = fsm_read_reg_.getReg(); value) {
       Fdc1004::FdcConf fdc_conf{value.value()};
@@ -489,11 +491,11 @@ class Fdc1004Reader
     }
     return false;
   }
-  void handleEvent(WaitFdcConf, ReadFdcConf) {
+  void handleEvent(detail::WaitFdcConf, detail::ReadFdcConf) {
     fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::FdcConf>());
   }
 
-  bool checkEvent(WaitFdcConf, ReadMeas1) {
+  bool checkEvent(detail::WaitFdcConf, detail::ReadMeas1) {
     fsm_read_reg_.handle();
     if (auto value = fsm_read_reg_.getReg(); value) {
       Fdc1004::FdcConf fdc_conf{value.value()};
@@ -501,26 +503,26 @@ class Fdc1004Reader
     }
     return false;
   }
-  void handleEvent(WaitFdcConf, ReadMeas1) {
+  void handleEvent(detail::WaitFdcConf, detail::ReadMeas1) {
     fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::Meas1Msb>());
   }
 
   // WaitMeas1
-  bool checkEvent(WaitMeas1, ReadMeas2) {
+  bool checkEvent(detail::WaitMeas1, detail::ReadMeas2) {
     fsm_read_reg_.handle();
     return fsm_read_reg_.getReg().has_value();
   }
-  void handleEvent(WaitMeas1, ReadMeas2) {
+  void handleEvent(detail::WaitMeas1, detail::ReadMeas2) {
     meas_ = static_cast<uint32_t>(fsm_read_reg_.getReg().value()) << 16;
     fsm_read_reg_.start(Fdc1004::Map::value<Fdc1004::Meas1Lsb>());
   }
 
   // WaitMeas2
-  bool checkEvent(WaitMeas2, ReadDone) {
+  bool checkEvent(detail::WaitMeas2, detail::ReadDone) {
     fsm_read_reg_.handle();
     return fsm_read_reg_.getReg().has_value();
   }
-  void handleEvent(WaitMeas2, ReadDone) {
+  void handleEvent(detail::WaitMeas2, detail::ReadDone) {
     meas_ |= static_cast<uint32_t>(fsm_read_reg_.getReg().value());
     meas_ = meas_ >> 8;
     data_[0] = meas_;
@@ -557,19 +559,22 @@ class Fdc1004Reader
   //   m::DebugLogger<>::getInstance().add("State: WaitMeas2");
   // }
 
-  friend m::Fsm_v4<Fdc1004Reader<Io>, Idle, m::Transition<Idle, Startup, Check>,
+  friend m::Fsm_v4<
+      Fdc1004Reader<Io>, detail::Idle,
+      m::Transition<detail::Idle, detail::Startup, detail::Check>,
 
-                   m::Transition<Check, Stop, Idle>,
-                   m::Transition<Check, ReadFdcConf, WaitFdcConf>,
+      m::Transition<detail::Check, detail::Stop, detail::Idle>,
+      m::Transition<detail::Check, detail::ReadFdcConf, detail::WaitFdcConf>,
 
-                   m::Transition<WaitFdcConf, ReadFdcConf, WaitFdcConf>,
-                   m::Transition<WaitFdcConf, ReadMeas1, WaitMeas1>,
+      m::Transition<detail::WaitFdcConf, detail::ReadFdcConf,
+                    detail::WaitFdcConf>,
+      m::Transition<detail::WaitFdcConf, detail::ReadMeas1, detail::WaitMeas1>,
 
-                   m::Transition<WaitMeas1, ReadMeas2, WaitMeas2>,
+      m::Transition<detail::WaitMeas1, detail::ReadMeas2, detail::WaitMeas2>,
 
-                   m::Transition<WaitMeas2, ReadDone, Check>
+      m::Transition<detail::WaitMeas2, detail::ReadDone, detail::Check>
 
-                   >;
+      >;
 };
 }  // namespace m::ic
 

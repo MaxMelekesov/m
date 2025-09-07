@@ -451,6 +451,7 @@ class Fdc1004Reader
   bool start(std::span<uint32_t> data) {
     if (!data_.empty()) return false;
 
+    size_ = data.size();
     data_ = data;
     start_ = true;
     return true;
@@ -458,10 +459,13 @@ class Fdc1004Reader
 
   bool readDone() { return data_.empty(); }
 
+  std::size_t readed() { return size_ - data_.size(); }
+
  private:
   Io& io_;
   bool start_ = false;
   std::span<uint32_t> data_;
+  std::size_t size_ = 0;
 
   constexpr static uint8_t Addr = 0x50;
 

@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef PIN_G4_WRAPPER_H
-#define PIN_G4_WRAPPER_H
+#ifndef PIN_G4_WRAPPER_HPP
+#define PIN_G4_WRAPPER_HPP
 
 #include <Pin_G4.hpp>
 
@@ -52,4 +52,4 @@ class PinWrapper final : public m::ifc::mcu::IPin {
   const Pin::InitState init_state_;
 };
 
-#endif  // PIN_G4_WRAPPER_H
+#endif  // PIN_G4_WRAPPER_HPP

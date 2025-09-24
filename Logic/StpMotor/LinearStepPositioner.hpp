@@ -35,7 +35,7 @@ class LinearStepPositioner {
       if (steps_to_load_) {
         if (v_ != last_v_) {
           float temp = v_;
-          temp = std::ceil(temp / 1'000.0f);
+          temp = std::ceilf(temp / 1'000.0f);
           spms_ = temp;
           if (!spms_) {
             spms_ = 1;

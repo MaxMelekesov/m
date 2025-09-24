@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef PIN_G4_H
-#define PIN_G4_H
+#ifndef PIN_G4_HPP
+#define PIN_G4_HPP
 
 #include <IPin.hpp>
 #include <cstdint>
@@ -182,4 +182,4 @@ class Pin final : public m::ifc::mcu::IPin {
   GpioRcc rcc_;
 };
 
-#endif  // PIN_G4_H
+#endif  // PIN_G4_HPP

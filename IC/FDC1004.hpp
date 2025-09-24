@@ -467,8 +467,6 @@ class Fdc1004Reader
   std::span<uint32_t> data_;
   std::size_t size_ = 0;
 
-  constexpr static uint8_t Addr = 0x50;
-
   uint32_t meas_ = 0;
 
   detail::FsmReadReg<Io> fsm_read_reg_{io_};

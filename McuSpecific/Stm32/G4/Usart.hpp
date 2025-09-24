@@ -118,4 +118,4 @@ class Usart final : public m::ifc::IIO_Async<Bps<uint32_t>> {
   uint32_t rx_size_ = 0;
 };
 
-#endif  // USART_RS485_H
+#endif  // USART_HPP

@@ -33,6 +33,15 @@ class LinearStepPositioner {
       : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
     gen_.setCallback([&]() {
       if (steps_to_load_) {
+        if (v_ != last_v_) {
+          float temp = v_;
+          temp = std::ceil(temp / 1'000.0f);
+          spms_ = temp;
+          if (!spms_) {
+            spms_ = 1;
+          }
+          last_v_ = v_;
+        }
         if (steps_to_load_ >= spms_) {
           steps_to_load_ -= spms_;
           return GenT::Step{.freq = v_, .steps = spms_};
@@ -91,12 +100,8 @@ class LinearStepPositioner {
   bool emgStop() { return gen_.stop(); }
 
   bool setSpeed(uint32_t value) {
-    // TODO: fix race v_ & smps_
     v_ = value;
-    float temp = v_;
-    temp = std::ceil(temp / 1'000.0f);
-    spms_ = temp;
-    if (!spms_) spms_ = 1;
+
     return true;
   }
 
@@ -108,6 +113,7 @@ class LinearStepPositioner {
 
   uint32_t steps_to_load_ = 0;
   uint32_t v_ = 1'500;
+  uint32_t last_v_ = 1'500;
   uint32_t spms_ = 0;
 };
 }  // namespace m

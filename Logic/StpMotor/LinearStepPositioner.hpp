@@ -58,8 +58,10 @@ class LinearStepPositioner {
   }
 
   void handle() {
-    if (!moving()) {
-      drv_.setEnable(0);
+    if (!autohold_) {
+      if (!moving()) {
+        drv_.setEnable(0);
+      }
     }
   }
 
@@ -78,7 +80,6 @@ class LinearStepPositioner {
       ctr_.setDirection(CtrT::Dir::Down);
     }
 
-    drv_.setMicrostep(DrvT::Microstep::M_16);
     drv_.setEnable(1);
     time_.delay(Ms<uint32_t>{10});
 
@@ -105,11 +106,16 @@ class LinearStepPositioner {
     return true;
   }
 
+  void setAutohold(bool value) { autohold_ = value; }
+  bool getAutohold() { return autohold_; }
+
  private:
   m::ifc::ITime<Ms<uint32_t>>& time_;
   DrvT& drv_;
   CtrT& ctr_;
   GenT& gen_;
+
+  bool autohold_ = false;
 
   uint32_t steps_to_load_ = 0;
   uint32_t v_ = 1'500;

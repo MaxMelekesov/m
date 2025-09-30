@@ -17,6 +17,17 @@
 
 #include "stm32g0xx_hal.h"
 
+using MsT = Ms<uint32_t>;
+using UsT = Us<uint16_t>;
+
+static inline constexpr UsT operator""_Us(uint64_t value) {
+  return UsT{static_cast<UsT::type>(value)};
+}
+
+static inline constexpr MsT operator""_Ms(uint64_t value) {
+  return MsT{static_cast<MsT::type>(value)};
+}
+
 class TimeUs final : public m::ifc::ITime<Us<uint16_t>> {
  public:
   TimeUs() {
@@ -39,6 +50,10 @@ class TimeUs final : public m::ifc::ITime<Us<uint16_t>> {
     }
 
     HAL_TIM_Base_Start(&htim17_);
+  }
+  ~TimeUs() {
+    HAL_TIM_Base_Stop(&htim17_);
+    HAL_TIM_Base_DeInit(&htim17_);
   }
 
   TimeUs(const TimeUs&) = delete;

@@ -12,9 +12,21 @@
 #define TIMEOUT_H
 
 #include <ITime.hpp>
+#include <concepts>
 #include <functional>
 
 namespace m {
+
+template <typename TimeIfc, typename TimeUnit>
+  requires m::ifc::CTime<TimeIfc, TimeUnit>
+bool execWithTimeout(TimeIfc& time, const std::function<bool()>& code,
+                     TimeUnit timeout) {
+  auto start = time.getTick();
+  while (!code()) {
+    if (time.getDiff(start) > timeout) return false;
+  }
+  return true;
+}
 
 template <typename TimeUnit>
 class Timeout {

@@ -12,6 +12,7 @@
 #define CELSIUS_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,10 @@ struct Celsius : public Unit<Celsius<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CCelsius = requires { typename T::type; } &&
-                   std::is_base_of_v<Unit<T, typename T::type>, T>;
+                   std::is_base_of_v<Celsius<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CCelsius<Celsius<uint32_t>>,
+              "Celsius must satisfy CCelsius concept");
 
 #endif  // CELSIUS_HPP

@@ -12,6 +12,7 @@
 #define MINUTE_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,9 @@ struct Min : public Unit<Min<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CMin = requires { typename T::type; } &&
-               std::is_base_of_v<Unit<T, typename T::type>, T>;
+               std::is_base_of_v<Min<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CMin<Min<uint32_t>>, "Min must satisfy CMin concept");
 
 #endif  // MINUTE_HPP

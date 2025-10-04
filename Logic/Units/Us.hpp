@@ -12,6 +12,7 @@
 #define US_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,9 @@ struct Us : public Unit<Us<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CUs = requires { typename T::type; } &&
-              std::is_base_of_v<Unit<T, typename T::type>, T>;
+              std::is_base_of_v<Us<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CUs<Us<uint32_t>>, "Us must satisfy CUs concept");
 
 #endif  // US_HPP

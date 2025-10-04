@@ -12,6 +12,7 @@
 #define OHM_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,9 @@ struct Ohm : public Unit<Ohm<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept COhm = requires { typename T::type; } &&
-               std::is_base_of_v<Unit<T, typename T::type>, T>;
+               std::is_base_of_v<Ohm<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::COhm<Ohm<uint32_t>>, "Ohm must satisfy COhm concept");
 
 #endif  // OHM_HPP

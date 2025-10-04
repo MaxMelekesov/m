@@ -12,7 +12,7 @@
 #define KELVIN_HPP
 
 #include <Unit.hpp>
-#include <compare>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -24,7 +24,10 @@ struct Kelvin : public Unit<Kelvin<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CKelvin = requires { typename T::type; } &&
-                  std::is_base_of_v<Unit<T, typename T::type>, T>;
+                  std::is_base_of_v<Kelvin<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CKelvin<Kelvin<uint32_t>>,
+              "Kelvin must satisfy CKelvin concept");
 
 #endif  // KELVIN_HPP

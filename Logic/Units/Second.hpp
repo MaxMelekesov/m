@@ -12,6 +12,7 @@
 #define SECOND_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,9 @@ struct Sec : public Unit<Sec<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CSec = requires { typename T::type; } &&
-               std::is_base_of_v<Unit<T, typename T::type>, T>;
+               std::is_base_of_v<Sec<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CSec<Sec<uint32_t>>, "Sec must satisfy CSec concept");
 
 #endif  // SECOND_HPP

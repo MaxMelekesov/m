@@ -12,7 +12,7 @@
 #define MILLI_AMPERE_HPP
 
 #include <Unit.hpp>
-#include <compare>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -24,7 +24,9 @@ struct mA : public Unit<mA<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CmA = requires { typename T::type; } &&
-              std::is_base_of_v<Unit<T, typename T::type>, T>;
+              std::is_base_of_v<mA<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CmA<mA<uint32_t>>, "mA must satisfy CmA concept");
 
 #endif  // MILLI_AMPERE_HPP

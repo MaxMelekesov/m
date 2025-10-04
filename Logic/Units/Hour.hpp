@@ -12,6 +12,7 @@
 #define HOUR_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,9 @@ struct Hour : public Unit<Hour<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CHour = requires { typename T::type; } &&
-                std::is_base_of_v<Unit<T, typename T::type>, T>;
+                std::is_base_of_v<Hour<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CHour<Hour<uint32_t>>, "Hour must satisfy CHour concept");
 
 #endif  // HOUR_HPP

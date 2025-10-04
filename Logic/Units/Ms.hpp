@@ -12,6 +12,7 @@
 #define MS_HPP
 
 #include <Unit.hpp>
+#include <cstdint>
 #include <type_traits>
 
 template <typename T>
@@ -23,7 +24,9 @@ struct Ms : public Unit<Ms<T>, T> {
 namespace m::ifc {
 template <typename T>
 concept CMs = requires { typename T::type; } &&
-              std::is_base_of_v<Unit<T, typename T::type>, T>;
+              std::is_base_of_v<Ms<typename T::type>, T>;
 }  // namespace m::ifc
+
+static_assert(m::ifc::CMs<Ms<uint32_t>>, "Ms must satisfy CMs concept");
 
 #endif  // MS_HPP

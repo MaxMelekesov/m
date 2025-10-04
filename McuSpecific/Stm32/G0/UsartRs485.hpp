@@ -66,7 +66,7 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return rx_size_ - huart_.hdmarx->Instance->CNDTR;
   }
 
-  bool readAsync(std::span<volatile uint8_t> data) override {
+  bool readAsync(std::span<uint8_t> data) override {
     dr_en_.write(0);
     bool res = (HAL_UART_Receive_DMA(&huart_, (uint8_t*)data.data(),
                                      data.size()) == HAL_OK);

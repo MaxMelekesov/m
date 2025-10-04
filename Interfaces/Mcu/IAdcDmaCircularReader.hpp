@@ -24,12 +24,12 @@ class IAdcDmaCircularReader {
   virtual ~IAdcDmaCircularReader() {}
 
   virtual void setHalfConversionCallback(
-      std::function<void(std::span<volatile type>)>&& first_half_cb) = 0;
+      std::function<void(std::span<type>)>&& first_half_cb) = 0;
 
   virtual void setFullConversionCallback(
-      std::function<void(std::span<volatile type>)>&& second_half_cb) = 0;
+      std::function<void(std::span<type>)>&& second_half_cb) = 0;
 
-  virtual bool start(std::span<volatile type> data) = 0;
+  virtual bool start(std::span<type> data) = 0;
   virtual bool running() = 0;
   virtual bool stop() = 0;
 };
@@ -37,11 +37,11 @@ class IAdcDmaCircularReader {
 template <typename T>
 concept CAdcDmaCircularReader =
     requires(T reader,
-             std::function<void(std::span<volatile typename T::type>)>&&
+             std::function<void(std::span<typename T::type>)>&&
                  first_half_cb,
-             std::function<void(std::span<volatile typename T::type>)>&&
+             std::function<void(std::span<typename T::type>)>&&
                  second_half_cb,
-             std::span<volatile typename T::type> data) {
+             std::span<typename T::type> data) {
       {
         reader.setHalfConversionCallback(std::move(first_half_cb))
       } -> std::same_as<void>;
@@ -54,10 +54,10 @@ concept CAdcDmaCircularReader =
     } &&
     std::is_same_v<decltype(&T::setHalfConversionCallback),
                    void (T::*)(std::function<void(
-                                   std::span<volatile typename T::type>)>&&)> &&
+                                   std::span<typename T::type>)>&&)> &&
     std::is_same_v<decltype(&T::setFullConversionCallback),
                    void (T::*)(std::function<void(
-                                   std::span<volatile typename T::type>)>&&)>;
+                                   std::span<typename T::type>)>&&)>;
 
 static_assert(
     CAdcDmaCircularReader<IAdcDmaCircularReader<uint16_t>>,

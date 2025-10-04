@@ -23,7 +23,7 @@ class IIO_Sync {
   virtual ~IIO_Sync() {}
 
   virtual bool write(std::span<uint8_t const> data) = 0;
-  virtual bool read(std::span<volatile uint8_t> data) = 0;
+  virtual bool read(std::span<uint8_t> data) = 0;
 
   virtual Baudrate getBaudrate() = 0;
   virtual bool setBaudrate(Baudrate baud) = 0;
@@ -32,7 +32,7 @@ class IIO_Sync {
 };
 
 template <typename T>
-concept CIO_Sync = requires(T io, std::span<volatile uint8_t> rx_buf,
+concept CIO_Sync = requires(T io, std::span<uint8_t> rx_buf,
                             std::span<const uint8_t> tx_buf) {
   { io.write(tx_buf) } -> std::same_as<bool>;
   { io.read(rx_buf) } -> std::same_as<bool>;

@@ -22,13 +22,13 @@ class IFlashMemory {
   virtual std::size_t size() = 0;
   virtual bool erase(std::size_t addr, uint32_t size) = 0;
   virtual bool write(std::size_t addr, std::span<uint8_t const> data) = 0;
-  virtual bool read(std::size_t addr, std::span<volatile uint8_t> data) = 0;
+  virtual bool read(std::size_t addr, std::span<uint8_t> data) = 0;
 };
 
 template <typename T>
 concept CFlashMemory = requires(T mem, std::size_t addr, uint32_t sz,
                                 std::span<uint8_t const> wdata,
-                                std::span<volatile uint8_t> rdata) {
+                                std::span<uint8_t> rdata) {
   { mem.size() } -> std::same_as<std::size_t>;
   { mem.erase(addr, sz) } -> std::same_as<bool>;
   { mem.write(addr, wdata) } -> std::same_as<bool>;

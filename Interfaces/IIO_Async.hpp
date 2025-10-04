@@ -28,7 +28,7 @@ class IIO_Async {
   virtual bool writeDone() = 0;
 
   virtual std::size_t bytesAvailable() = 0;
-  virtual bool readAsync(std::span<volatile uint8_t> data) = 0;
+  virtual bool readAsync(std::span<uint8_t> data) = 0;
   virtual bool abortRead() = 0;
   virtual bool readDone() = 0;
 
@@ -39,7 +39,7 @@ class IIO_Async {
 };
 
 template <typename T>
-concept CIO_Async = requires(T io, std::span<volatile uint8_t> rx_buf,
+concept CIO_Async = requires(T io, std::span<uint8_t> rx_buf,
                              std::span<const uint8_t> tx_buf) {
   { io.bytesToWrite() } -> std::same_as<std::size_t>;
   { io.writeAsync(tx_buf) } -> std::same_as<bool>;

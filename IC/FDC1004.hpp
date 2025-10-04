@@ -240,7 +240,7 @@ class Fdc1004Sync : public IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
 
   constexpr static uint8_t Addr = 0x50;
 
-  std::array<volatile uint8_t, 3> read_buf_;
+  std::array<uint8_t, 3> read_buf_;
   std::array<uint8_t, 4> write_buf_;
 
   template <typename Reg>
@@ -292,7 +292,7 @@ class Fdc1004Sync : public IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
     return true;
   }
 
-  bool readSpan(std::span<volatile uint8_t> span) {
+  bool readSpan(std::span<uint8_t> span) {
     if (!io_.readAsync(read_buf_)) return false;
 
     if (!timeout_.execWithTimeout(
@@ -353,16 +353,16 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
     return true;
   }
 
-  std::optional<volatile uint16_t> getReg() { return reg_; }
+  std::optional<uint16_t> getReg() { return reg_; }
 
  private:
   Io& io_;
 
   uint8_t addr_ = 0;
-  std::optional<volatile uint16_t> reg_;
+  std::optional<uint16_t> reg_;
   bool start_ = false;
 
-  std::array<volatile uint8_t, 3> read_buf_;
+  std::array<uint8_t, 3> read_buf_;
   std::array<uint8_t, 2> write_buf_;
 
   constexpr static uint8_t Addr = 0x50;

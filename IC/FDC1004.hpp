@@ -14,7 +14,7 @@
 #include <Fsm_v4.hpp>
 #include <IIO_Async.hpp>
 #include <ITime.hpp>
-#include <IcSync.hpp>
+#include <Ic.hpp>
 #include <Reg.hpp>
 #include <StaticMap.hpp>
 #include <Timeout.hpp>
@@ -227,7 +227,7 @@ struct Fdc1004 {
 
 template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
           m::ifc::CIO_Async Io>
-class Fdc1004Sync : public IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
+class Fdc1004Sync : public Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
  public:
   Fdc1004Sync(Time& time, Io& io, TimeUnit add_timeout)
       : time_(time), io_(io), add_timeout_(add_timeout) {}
@@ -305,7 +305,7 @@ class Fdc1004Sync : public IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
     return true;
   }
 
-  friend class IcSync<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004>;
+  friend class Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004>;
 };
 
 namespace detail {

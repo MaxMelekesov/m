@@ -14,9 +14,9 @@
 
 namespace m {
 template <typename T, typename Tuple>
-concept tuple_contains = []<std::size_t... I>(std::index_sequence<I...>) {
-  return (std::same_as<T, std::tuple_element_t<I, Tuple>> || ...);
-}(std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+concept tuple_contains = []<typename... Args>(std::tuple<Args...>*) {
+  return (std::same_as<T, Args> || ...);
+}(static_cast<Tuple*>(nullptr));
 }  // namespace m
 
 #endif  // TUPLE_CONTAINS_HPP

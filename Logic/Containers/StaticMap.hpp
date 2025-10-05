@@ -76,6 +76,12 @@ struct StaticMap {
   }
 };
 
+template <typename T>
+concept CStaticMap = requires {
+  typename T::StorageType;
+  []<typename V, CPairs... P>(StaticMap<V, P...>*) {}(static_cast<T*>(nullptr));
+};
+
 }  // namespace m
 
 #endif  // STATIC_MAP_HPP

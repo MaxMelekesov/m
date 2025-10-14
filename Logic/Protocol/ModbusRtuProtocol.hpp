@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef MODBUS_RTU_PROTOCOL_H
-#define MODBUS_RTU_PROTOCOL_H
+#ifndef MODBUS_RTU_PROTOCOL_HPP
+#define MODBUS_RTU_PROTOCOL_HPP
 
 #include <DataLinkAsync.hpp>
 #include <ITime.hpp>
@@ -90,7 +90,7 @@ class ModbusRtuProtocol {
       std::function<std::optional<m::ModbusRtuProtocol<type>::Error>(
           uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
 
-  ModbusRtuProtocol(m::ifc::IDataLink &data_link, m::ifc::ITime<type> &time,
+  ModbusRtuProtocol(m::ifc::IDataLink& data_link, m::ifc::ITime<type>& time,
                     Timings timings, std::span<uint8_t> rx_buf,
                     std::span<uint8_t> tx_buf)
       : data_link_(data_link),
@@ -99,31 +99,34 @@ class ModbusRtuProtocol {
         rx_buf_(rx_buf),
         tx_buf_(tx_buf) {}
 
-  void addReadCoilsCallback(RC_Cb &&cb) { cb_.rc_cb = std::move(cb); }
-  void addReadDiscreteInputsCallback(RDI_Cb &&cb) {
+  void addReadCoilsCallback(RC_Cb&& cb) { cb_.rc_cb = std::move(cb); }
+  void addReadDiscreteInputsCallback(RDI_Cb&& cb) {
     cb_.rdi_cb = std::move(cb);
   }
-  void addReadMultipleHoldingRegistersCallback(RMHR_Cb &&cb) {
+  void addReadMultipleHoldingRegistersCallback(RMHR_Cb&& cb) {
     cb_.rmhr_cb = std::move(cb);
   }
-  void addReadInputRegistersCallback(RIR_Cb &&cb) {
+  void addReadInputRegistersCallback(RIR_Cb&& cb) {
     cb_.rir_cb = std::move(cb);
   }
-  void addWriteSingleCoilCallback(WSC_Cb &&cb) { cb_.wsc_cb = std::move(cb); }
-  void addWriteSingleHoldingRegisterCallback(WSHR_Cb &&cb) {
+  void addWriteSingleCoilCallback(WSC_Cb&& cb) { cb_.wsc_cb = std::move(cb); }
+  void addWriteSingleHoldingRegisterCallback(WSHR_Cb&& cb) {
     cb_.wshr_cb = std::move(cb);
   }
-  void addWriteMultipleCoilsCallback(WMC_Cb &&cb) {
+  void addWriteMultipleCoilsCallback(WMC_Cb&& cb) {
     cb_.wmc_cb = std::move(cb);
   }
-  void addWriteMultipleHoldingRegistersCallback(WMHR_Cb &&cb) {
+  void addWriteMultipleHoldingRegistersCallback(WMHR_Cb&& cb) {
     cb_.wmhr_cb = std::move(cb);
   }
 
   bool handle() {
     if (data_link_.error()) {
       state_ = State::Idle;
-      if (!data_link_.reset()) {
+      if (!data_link_.stopReceive()) {
+        return false;
+      }
+      if (!data_link_.stopTransmit()) {
         return false;
       }
     }
@@ -140,25 +143,25 @@ class ModbusRtuProtocol {
         }
       } break;
       case State::ProcessPacket: {
-        if (auto value = data_link_.getRxPacketSize(); value) {
-          if (auto rx_packet_size = value.value()) {
-            tx_packet_size_ = process(rx_buf_.first(rx_packet_size), tx_buf_);
+        if (auto value = data_link_.getPacket(); value) {
+          tx_packet_size_ = process(value.value(), tx_buf_);
 
-            if (!tx_packet_size_) {
-              state_ = State::Idle;
-              return handle();
-            }
-
-            time_.delay(timings_.tx_response_delay);
-
-            if (auto size = tx_packet_size_.value(); size) {
-              if (!data_link_.startTransmit(tx_buf_.first(size))) {
-                state_ = State::Idle;
-                return false;
-              }
-            }
-            state_ = State::TransmitResponse;
+          if (!tx_packet_size_) {
+            state_ = State::Idle;
+            return handle();
           }
+
+          // TODO: switch delay to non blocking timer
+          time_.delay(timings_.tx_response_delay);
+
+          if (auto size = tx_packet_size_.value(); size) {
+            if (!data_link_.startTransmit(tx_buf_.first(size))) {
+              state_ = State::Idle;
+              return false;
+            }
+          }
+          state_ = State::TransmitResponse;
+
         } else {
           return false;
         }
@@ -190,7 +193,8 @@ class ModbusRtuProtocol {
   }
 
   bool restart() {
-    if (!data_link_.reset()) return false;
+    if (!data_link_.stopReceive()) return false;
+    if (!data_link_.stopTransmit()) return false;
     state_ = State::Idle;
     running_ = true;
     return true;
@@ -204,8 +208,8 @@ class ModbusRtuProtocol {
   uint8_t getAddress() { return addr_; }
 
  private:
-  m::ifc::IDataLink &data_link_;
-  m::ifc::ITime<type> &time_;
+  m::ifc::IDataLink& data_link_;
+  m::ifc::ITime<type>& time_;
   Timings timings_;
   std::span<uint8_t> rx_buf_;
   std::span<uint8_t> tx_buf_;
@@ -534,7 +538,7 @@ class ModbusRtuProtocol {
     tx_buf = tx_buf.subspan(1);
 
     std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t *>(tx_buf.data()), regs_num};
+        reinterpret_cast<uint16_t*>(tx_buf.data()), regs_num};
 
     if (auto err = cb_.rmhr_cb(start_address, regs_num, regs); err) {
       return {err, 0};
@@ -576,7 +580,7 @@ class ModbusRtuProtocol {
     tx_buf = tx_buf.subspan(1);
 
     std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t *>(tx_buf.data()), regs_num};
+        reinterpret_cast<uint16_t*>(tx_buf.data()), regs_num};
 
     if (auto err = cb_.rir_cb(start_address, regs_num, regs); err) {
       return {err, 0};
@@ -670,7 +674,7 @@ class ModbusRtuProtocol {
     }
 
     std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t *>(rx_buf.subspan(5).data()), regs_num};
+        reinterpret_cast<uint16_t*>(rx_buf.subspan(5).data()), regs_num};
 
     if (auto err = cb_.wmhr_cb(start_address, regs_num, regs); err) {
       return err;
@@ -681,7 +685,7 @@ class ModbusRtuProtocol {
   }
 
   void swapBytesInSpan(std::span<uint16_t> regs) {
-    for (uint16_t &reg : regs) {
+    for (uint16_t& reg : regs) {
       reg = byteswap(reg);
     }
   }
@@ -708,4 +712,4 @@ class ModbusRtuProtocol {
 };
 }  // namespace m
 
-#endif  // MODBUS_RTU_PROTOCOL_H
+#endif  // MODBUS_RTU_PROTOCOL_HPP

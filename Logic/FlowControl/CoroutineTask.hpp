@@ -16,13 +16,14 @@
 
 namespace m {
 
-template <typename Derived, typename ResultType = void>
+template <typename ResultType = void>
 class CoroutineTask {
  public:
   struct promise_type {
     ResultType result_ = ResultType{};
-    Derived get_return_object() {
-      return Derived{std::coroutine_handle<promise_type>::from_promise(*this)};
+    CoroutineTask get_return_object() {
+      return CoroutineTask{
+          std::coroutine_handle<promise_type>::from_promise(*this)};
     }
     std::suspend_always initial_suspend() { return {}; }
     std::suspend_always final_suspend() noexcept { return {}; }
@@ -59,7 +60,7 @@ class CoroutineTask {
   bool resume() {
     if (!done()) return false;
     handle_();
-    return !handle_.done();
+    return true;
   }
 
   ResultType result() {
@@ -70,12 +71,13 @@ class CoroutineTask {
   Handle handle_;
 };
 
-template <typename Derived>
-class CoroutineTask<Derived, void> {
+template <>
+class CoroutineTask<void> {
  public:
   struct promise_type {
-    Derived get_return_object() {
-      return Derived{std::coroutine_handle<promise_type>::from_promise(*this)};
+    CoroutineTask get_return_object() {
+      return CoroutineTask{
+          std::coroutine_handle<promise_type>::from_promise(*this)};
     }
     std::suspend_always initial_suspend() { return {}; }
     std::suspend_always final_suspend() noexcept { return {}; }
@@ -112,7 +114,7 @@ class CoroutineTask<Derived, void> {
   bool resume() {
     if (!done()) return false;
     handle_();
-    return !handle_.done();
+    return true;
   }
 
  protected:

@@ -205,22 +205,14 @@ class FlashMemAsync : public m::ifc::IFlashMemoryAsync {
     IOError
   };
 
-  struct EraseCoroutine : public m::CoroutineTask<EraseCoroutine, Result> {
-    using CoroutineTask<EraseCoroutine, Result>::CoroutineTask;
-  };
-  EraseCoroutine erase_task_{nullptr};
+  m::CoroutineTask<Result> erase_task_{nullptr};
 
-  struct ReadCoroutine : public m::CoroutineTask<ReadCoroutine, Result> {
-    using CoroutineTask<ReadCoroutine, Result>::CoroutineTask;
-  };
-  ReadCoroutine read_task_{nullptr};
+  m::CoroutineTask<Result> read_task_{nullptr};
 
-  struct WriteCoroutine : public m::CoroutineTask<WriteCoroutine, Result> {
-    using CoroutineTask<WriteCoroutine, Result>::CoroutineTask;
-  };
-  WriteCoroutine write_task_{nullptr};
+  m::CoroutineTask<Result> write_task_{nullptr};
 
-  ReadCoroutine read_impl(std::size_t addr, std::span<uint8_t> data) {
+  m::CoroutineTask<Result> read_impl(std::size_t addr,
+                                     std::span<uint8_t> data) {
     FlashMemRegmap::Read read;
     read.value.set<FlashMemRegmap::Read::Addr>(addr);
 
@@ -248,8 +240,8 @@ class FlashMemAsync : public m::ifc::IFlashMemoryAsync {
     co_return Result::BusyTimeout;
   }
 
-  EraseCoroutine erase_impl(std::size_t addr, std::size_t sectors,
-                            std::size_t sector_size) {
+  m::CoroutineTask<Result> erase_impl(std::size_t addr, std::size_t sectors,
+                                      std::size_t sector_size) {
     auto cleanup = m::finally([&] { cs_.write(0); });
     for (std::size_t i = 0; i < sectors; ++i) {
       cs_.write(1);
@@ -292,9 +284,9 @@ class FlashMemAsync : public m::ifc::IFlashMemoryAsync {
     co_return Result::Success;
   }
 
-  WriteCoroutine write_impl(std::size_t addr, std::span<uint8_t const> data) {
-
-    
+  m::CoroutineTask<Result> write_impl(std::size_t addr,
+                                      std::span<uint8_t const> data) {
+    co_return Result::Success;
   }
 };
 }  // namespace m::ic

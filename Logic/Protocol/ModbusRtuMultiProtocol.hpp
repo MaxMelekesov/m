@@ -12,6 +12,7 @@
 #define MODBUS_RTU_MULTI_PROTOCOL_HPP
 
 #include <DataLinkAsync.hpp>
+#include <IPin.hpp>
 #include <ITime.hpp>
 #include <Us.hpp>
 #include <algorithm>
@@ -24,7 +25,7 @@
 
 namespace m {
 
-template <m::ifc::CUs UsT, std::size_t AddrCount = 1>
+template <m::ifc::CUs UsT, m::ifc::mcu::CPin PintT, std::size_t AddrCount = 1>
 class ModbusRtuMultiProtocol {
  public:
   enum class Commands : uint8_t {
@@ -88,12 +89,15 @@ class ModbusRtuMultiProtocol {
 
   ModbusRtuMultiProtocol(m::ifc::IDataLink& data_link, m::ifc::ITime<UsT>& time,
                          Timings timings, std::span<uint8_t> rx_buf,
-                         std::span<uint8_t> tx_buf)
+                         std::span<uint8_t> tx_buf, PintT& rx_led,
+                         PintT& tx_led)
       : data_link_(data_link),
         time_(time),
         timings_(timings),
         rx_buf_(rx_buf),
-        tx_buf_(tx_buf) {
+        tx_buf_(tx_buf),
+        rx_led_(rx_led),
+        tx_led_(tx_led) {
     addr_.fill(0);
   }
 
@@ -147,6 +151,7 @@ class ModbusRtuMultiProtocol {
       case State::Idle: {
         if (running_) {
           if (data_link_.startReceive(rx_buf_)) {
+            rx_led_.toggle();
             state_ = State::ProcessPacket;
             return true;
           } else {
@@ -156,6 +161,7 @@ class ModbusRtuMultiProtocol {
       } break;
       case State::ProcessPacket: {
         if (auto value = data_link_.getPacket(); value) {
+          rx_led_.toggle();
           tx_packet_size_ = process(value.value(), tx_buf_);
 
           if (!tx_packet_size_) {
@@ -171,6 +177,7 @@ class ModbusRtuMultiProtocol {
               state_ = State::Idle;
               return false;
             }
+            tx_led_.toggle();
           }
           state_ = State::TransmitResponse;
 
@@ -181,6 +188,7 @@ class ModbusRtuMultiProtocol {
       case State::TransmitResponse: {
         if (auto value = data_link_.transmitDone(); value) {
           if (value.value()) {
+            tx_led_.toggle();
             state_ = State::Idle;
             return handle();
           } else {
@@ -222,6 +230,8 @@ class ModbusRtuMultiProtocol {
   Timings timings_;
   std::span<uint8_t> rx_buf_;
   std::span<uint8_t> tx_buf_;
+  PintT& rx_led_;
+  PintT& tx_led_;
 
   struct Callbacks {
     RC_Cb rc_cb;

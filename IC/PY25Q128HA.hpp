@@ -5,19 +5,16 @@
 #include <ITime.hpp>
 #include <Ms.hpp>
 #include <Timeout.hpp>
-
 #include <cstdint>
 #include <cstring>
 #include <optional>
 
 namespace m::ic {
-template <typename TimeUnit>
+template <m::ifc::CMs MsT>
 class PY25Q128HA : public m::ifc::IMemory {
  public:
-  using type = TimeUnit;
-
-  PY25Q128HA(m::ifc::IIO_Sync<Ms<type>>& spi, m::ifc::mcu::IPin& cs_pin,
-             m::ifc::ITime<Ms<type>>& time)
+  PY25Q128HA(m::ifc::IIO_Sync<Bps<uint32_t>>& spi, m::ifc::mcu::IPin& cs_pin,
+             m::ifc::ITime<MsT>& time)
       : spi_(spi), cs_pin_(cs_pin), time_(time), timeout_(time_) {}
 
   std::size_t size() override { return uint32_t{16 * 1024 * 1024}; }
@@ -30,10 +27,8 @@ class PY25Q128HA : public m::ifc::IMemory {
     cmd[3] = addr;
 
     cs_pin_.write(1);
-    auto wr_ok =
-        spi_.write(cmd, Ms<type>{cmd.size() * 1'000 / spi_.getBaudrate() + 10});
-    auto rd_ok = spi_.read(
-        data, Ms<type>{data.size() * 1'000 / spi_.getBaudrate() + 10});
+    auto wr_ok = spi_.write(cmd);
+    auto rd_ok = spi_.read(data);
     cs_pin_.write(0);
 
     return wr_ok && rd_ok;
@@ -77,10 +72,10 @@ class PY25Q128HA : public m::ifc::IMemory {
   }
 
  private:
-  m::ifc::IIO_Sync<Ms<type>>& spi_;
+  m::ifc::IIO_Sync<Bps<uint32_t>>& spi_;
   m::ifc::mcu::IPin& cs_pin_;
-  m::ifc::ITime<Ms<type>>& time_;
-  m::Timeout<Ms<type>> timeout_;
+  m::ifc::ITime<MsT>& time_;
+  m::Timeout<MsT> timeout_;
 
   enum class Commands : uint8_t {
     Page_Prog = 0x02,
@@ -102,8 +97,7 @@ class PY25Q128HA : public m::ifc::IMemory {
     }
 
     cs_pin_.write(1);
-    auto wr_ok =
-        spi_.write(cmd, Ms<type>{cmd.size() * 1'000 / spi_.getBaudrate() + 10});
+    auto wr_ok = spi_.write(cmd);
     cs_pin_.write(0);
 
     return wr_ok;
@@ -132,10 +126,8 @@ class PY25Q128HA : public m::ifc::IMemory {
     cmd[3] = addr;
 
     cs_pin_.write(1);
-    auto wr_ok =
-        spi_.write(cmd, Ms<type>{cmd.size() * 1'000 / spi_.getBaudrate() + 10});
-    auto wrd_ok = spi_.write(
-        data, Ms<type>{data.size() * 1'000 / spi_.getBaudrate() + 10});
+    auto wr_ok = spi_.write(cmd);
+    auto wrd_ok = spi_.write(data);
     cs_pin_.write(0);
 
     auto stat_ok = timeout_.execWithTimeout(
@@ -143,7 +135,7 @@ class PY25Q128HA : public m::ifc::IMemory {
           auto res = writeInProgress();
           return !res.value_or(false);
         },
-        Ms<type>{5});
+        MsT{5});
 
     return wr_ok && wrd_ok && stat_ok;
   }
@@ -153,10 +145,8 @@ class PY25Q128HA : public m::ifc::IMemory {
     std::array<uint8_t, 1> resp{0};
 
     cs_pin_.write(1);
-    auto rd_ok =
-        spi_.write(cmd, Ms<type>{cmd.size() * 1'000 / spi_.getBaudrate() + 10});
-    auto wr_ok = spi_.read(
-        resp, Ms<type>{resp.size() * 1'000 / spi_.getBaudrate() + 10});
+    auto rd_ok = spi_.write(cmd);
+    auto wr_ok = spi_.read(resp);
     cs_pin_.write(0);
 
     return (rd_ok && wr_ok) ? std::optional<bool>(resp[0] & uint8_t(0x01))
@@ -173,8 +163,7 @@ class PY25Q128HA : public m::ifc::IMemory {
     cmd[3] = addr;
 
     cs_pin_.write(1);
-    auto wr_ok =
-        spi_.write(cmd, Ms<type>{cmd.size() * 1'000 / spi_.getBaudrate() + 10});
+    auto wr_ok = spi_.write(cmd);
     cs_pin_.write(0);
 
     auto stat_ok = timeout_.execWithTimeout(
@@ -182,7 +171,7 @@ class PY25Q128HA : public m::ifc::IMemory {
           auto res = writeInProgress();
           return !res.value_or(false);
         },
-        Ms<type>{1'000});
+        MsT{301});
 
     return wr_ok && stat_ok;
   }

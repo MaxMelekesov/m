@@ -17,18 +17,27 @@
 #include <Timer.hpp>
 #include <bit>
 #include <bitset>
-#include <cstdint>
 
 namespace m {
 
-template <typename TimeUnit, uint32_t MaxErrorCode>
+template <typename T>
+concept EnumClass =
+    std::is_enum_v<T> && !std::is_convertible_v<T, std::underlying_type_t<T>>;
+
+template <typename T>
+concept EnumClassWithSize = EnumClass<T> && requires {
+  T::None;
+  T::Size;
+  requires std::is_same_v<decltype(T::Size), T>;
+};
+
+template <m::ifc::CMs MsT, EnumClassWithSize ErrorT>
 class ErrorLedIndicator {
  public:
-  ErrorLedIndicator(ifc::mcu::IPin& led, ifc::ITime<Ms<TimeUnit>>& time,
-                    Ms<TimeUnit> long_flash = Ms<TimeUnit>{1000},
-                    Ms<TimeUnit> short_flash = Ms<TimeUnit>{200},
-                    Ms<TimeUnit> pause_between_flashes = Ms<TimeUnit>{1000},
-                    Ms<TimeUnit> pause_between_sequences = Ms<TimeUnit>{5000})
+  ErrorLedIndicator(ifc::mcu::IPin& led, ifc::ITime<MsT>& time,
+                    MsT long_flash = MsT{1000}, MsT short_flash = MsT{200},
+                    MsT pause_between_flashes = MsT{1000},
+                    MsT pause_between_sequences = MsT{5000})
       : led_(led),
         time_(time),
         timer_(time),
@@ -37,25 +46,22 @@ class ErrorLedIndicator {
         Pause_Between_Flashes(pause_between_flashes),
         Pause_Between_Sequences(pause_between_sequences) {}
 
-  void setError(uint32_t errorCode) {
-    if (errorCode > MaxErrorCode) {
-      errorCode_ = MaxErrorCode;
-    } else {
-      errorCode_ = errorCode;
-    }
+  void setError(ErrorT error_code) {
+    error_code_ = error_code;
+
     generateFlashSequence();
     resetState();
   }
 
-  bool hasError() const { return hasError_; }
+  bool hasError() const { return has_error_; }
 
   void clearError() {
-    hasError_ = false;
+    has_error_ = false;
     led_.write(false);
   }
 
   void handle() {
-    if (!hasError_) return;
+    if (!has_error_) return;
 
     switch (state_) {
       case State::Idle: {
@@ -101,17 +107,17 @@ class ErrorLedIndicator {
 
  private:
   ifc::mcu::IPin& led_;
-  ifc::ITime<Ms<TimeUnit>>& time_;
-  Timer<Ms<TimeUnit>> timer_;
+  ifc::ITime<MsT>& time_;
+  Timer<MsT> timer_;
 
-  bool hasError_ = false;
-  uint32_t errorCode_ = 0;
+  bool has_error_ = false;
+  ErrorT error_code_ = ErrorT::None;
 
-  static constexpr std::size_t bitsNeeded(uint32_t value) {
-    return std::bit_width(value) > 0 ? std::bit_width(value) : 1;
+  static constexpr std::size_t bitsNeeded() {
+    auto temp = std::bit_width(static_cast<std::size_t>(ErrorT::Size));
+    return temp > 0 ? temp : 1;
   }
-  static constexpr std::size_t Max_Flash_Sequence_Size =
-      bitsNeeded(MaxErrorCode);
+  static constexpr std::size_t Max_Flash_Sequence_Size = bitsNeeded();
 
   std::bitset<Max_Flash_Sequence_Size> flashSequence_;
   std::size_t flashSequenceSize_ = 0;
@@ -120,19 +126,19 @@ class ErrorLedIndicator {
   enum class State { Idle, WaitingBetweenSequences, FlashOn, FlashOff };
   State state_ = State::Idle;
 
-  const Ms<TimeUnit> Long_Flash;
-  const Ms<TimeUnit> Short_Flash;
-  const Ms<TimeUnit> Pause_Between_Flashes;
-  const Ms<TimeUnit> Pause_Between_Sequences;
+  const MsT Long_Flash;
+  const MsT Short_Flash;
+  const MsT Pause_Between_Flashes;
+  const MsT Pause_Between_Sequences;
 
   void resetState() {
-    hasError_ = true;
+    has_error_ = false;
     state_ = State::Idle;
     currentFlashIndex_ = 0;
     led_.write(false);
   }
 
-  [[nodiscard]] constexpr bool isLongFlash(size_t index) const {
+  [[nodiscard]] constexpr bool isLongFlash(std::size_t index) const {
     if (index < flashSequenceSize_) {
       return flashSequence_[index];
     }
@@ -142,14 +148,16 @@ class ErrorLedIndicator {
   void generateFlashSequence() {
     flashSequence_.reset();
 
-    if (errorCode_ == 0) {
+    if (error_code_ == ErrorT::None) {
       flashSequenceSize_ = 1;
       return;
     }
-    flashSequenceSize_ = std::bit_width(errorCode_);
 
-    for (uint32_t i = 0; i < flashSequenceSize_; ++i) {
-      if ((errorCode_ & (1u << i)) != 0) {
+    auto temp = static_cast<std::size_t>(error_code_);
+    flashSequenceSize_ = std::bit_width(temp);
+
+    for (std::size_t i = 0; i < flashSequenceSize_; ++i) {
+      if ((temp & (1u << i)) != 0) {
         flashSequence_.set(flashSequenceSize_ - i - 1);
       }
     }

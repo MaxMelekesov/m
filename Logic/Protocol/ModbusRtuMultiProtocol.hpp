@@ -212,10 +212,7 @@ class ModbusRtuMultiProtocol {
     return true;
   }
 
-  bool setAddress(std::array<uint8_t, AddrCount> addr) {
-    addr_ = addr;
-    return true;
-  }
+  void setAddress(std::array<uint8_t, AddrCount> addr) { addr_ = addr; }
 
   std::array<uint8_t, AddrCount> getAddress() { return addr_; }
 

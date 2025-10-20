@@ -66,11 +66,11 @@ class ModbusRtuMultiProtocol {
 
   // ReadMultipleHoldingRegisters callback
   using RMHR_Cb = std::function<std::optional<Error>(
-      uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
+      uint16_t start_addr, uint16_t regs_num, std::span<uint8_t> regs)>;
 
   // ReadInputRegisters callback
   using RIR_Cb = std::function<std::optional<Error>(
-      uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
+      uint16_t start_addr, uint16_t regs_num, std::span<uint8_t> regs)>;
 
   // WriteSingleCoil callback
   using WSC_Cb = std::function<std::optional<Error>(uint16_t addr, bool value)>;
@@ -85,7 +85,7 @@ class ModbusRtuMultiProtocol {
 
   // WriteMultipleHoldingRegisters callback
   using WMHR_Cb = std::function<std::optional<Error>(
-      uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
+      uint16_t start_addr, uint16_t regs_num, std::span<uint8_t> regs)>;
 
   ModbusRtuMultiProtocol(m::ifc::IDataLink& data_link, m::ifc::ITime<UsT>& time,
                          Timings timings, std::span<uint8_t> rx_buf,
@@ -556,20 +556,15 @@ class ModbusRtuMultiProtocol {
     }
 
     tx_buf[0] = regs_num * 2;
-    tx_buf = tx_buf.subspan(1);
+    tx_buf = tx_buf.subspan(1, 2 * regs_num);
 
-    std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t*>(tx_buf.data()), regs_num};
-
-    if (auto err = cb_[addr_index].rmhr_cb(start_address, regs_num, regs);
+    if (auto err = cb_[addr_index].rmhr_cb(start_address, regs_num, tx_buf);
         err) {
       return {err, 0};
     } else {
-      swapBytesInSpan(regs);
+      swapBytesInSpan(tx_buf);
       return {std::nullopt, byte_count + 1};
     }
-
-    return {std::nullopt, byte_count + 1};
   }
 
   std::tuple<std::optional<Error>, uint32_t> processReadInputRegisters(
@@ -599,15 +594,13 @@ class ModbusRtuMultiProtocol {
     }
 
     tx_buf[0] = regs_num * 2;
-    tx_buf = tx_buf.subspan(1);
+    tx_buf = tx_buf.subspan(1, 2 * regs_num);
 
-    std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t*>(tx_buf.data()), regs_num};
-
-    if (auto err = cb_[addr_index].rir_cb(start_address, regs_num, regs); err) {
+    if (auto err = cb_[addr_index].rir_cb(start_address, regs_num, tx_buf);
+        err) {
       return {err, 0};
     } else {
-      swapBytesInSpan(regs);
+      swapBytesInSpan(tx_buf);
       return {std::nullopt, byte_count + 1};
     }
   }
@@ -690,7 +683,7 @@ class ModbusRtuMultiProtocol {
     uint16_t regs_num = (rx_buf[2] << 8) + rx_buf[3];
     uint8_t byte_count = rx_buf[4];
 
-    if (regs_num < 1 || regs_num > 0x007B || byte_count != regs_num * 2) {
+    if (regs_num < 1 || regs_num > 0x00'7B || byte_count != regs_num * 2) {
       return Error::IllegalDataValue;
     }
 
@@ -698,8 +691,7 @@ class ModbusRtuMultiProtocol {
       return Error::IllegalDataValue;
     }
 
-    std::span<uint16_t> regs = std::span<uint16_t>{
-        reinterpret_cast<uint16_t*>(rx_buf.subspan(5).data()), regs_num};
+    std::span<uint8_t> regs = rx_buf.subspan(5, regs_num * 2);
 
     if (auto err = cb_[addr_index].wmhr_cb(start_address, regs_num, regs);
         err) {
@@ -710,13 +702,11 @@ class ModbusRtuMultiProtocol {
     }
   }
 
-  void swapBytesInSpan(std::span<uint16_t> regs) {
-    for (uint16_t& reg : regs) {
-      reg = byteswap(reg);
+  void swapBytesInSpan(std::span<uint8_t> regs) {
+    for (size_t i = 0; i + 1 < regs.size(); i += 2) {
+      std::swap(regs[i], regs[i + 1]);
     }
   }
-
-  uint16_t byteswap(uint16_t value) { return (value >> 8) | (value << 8); }
 
   uint16_t crc16(std::span<uint8_t> data) {
     static const uint16_t table[2] = {0x00'00, 0xA0'01};
@@ -726,7 +716,7 @@ class ModbusRtuMultiProtocol {
     for (auto i = 0u; i < data.size(); ++i) {
       crc ^= data[i];
 
-      for (char bit = 0; bit < 8; bit++) {
+      for (uint8_t bit = 0; bit < 8; bit++) {
         xorv = crc & 0x01;
         crc >>= 1;
         crc ^= table[xorv];

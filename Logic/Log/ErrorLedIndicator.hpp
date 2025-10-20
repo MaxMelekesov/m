@@ -17,6 +17,7 @@
 #include <Timer.hpp>
 #include <bit>
 #include <bitset>
+#include <optional>
 
 namespace m {
 
@@ -26,7 +27,6 @@ concept EnumClass =
 
 template <typename T>
 concept EnumClassWithSize = EnumClass<T> && requires {
-  T::None;
   T::Size;
   requires std::is_same_v<decltype(T::Size), T>;
 };
@@ -53,15 +53,15 @@ class ErrorLedIndicator {
     resetState();
   }
 
-  bool hasError() const { return has_error_; }
+  bool hasError() { return error_code_.has_value(); }
 
   void clearError() {
-    has_error_ = false;
+    error_code_ = std::nullopt;
     led_.write(false);
   }
 
   void handle() {
-    if (!has_error_) return;
+    if (!error_code_) return;
 
     switch (state_) {
       case State::Idle: {
@@ -72,11 +72,11 @@ class ErrorLedIndicator {
       }
       case State::WaitingBetweenSequences: {
         if (timer_.timeOver()) {
-          currentFlashIndex_ = 0;
+          current_flash_index_ = 0;
           state_ = State::FlashOn;
           led_.write(true);
-          timer_.restart(isLongFlash(currentFlashIndex_) ? Long_Flash
-                                                         : Short_Flash);
+          timer_.restart(isLongFlash(current_flash_index_) ? Long_Flash
+                                                           : Short_Flash);
         }
         break;
       }
@@ -90,13 +90,13 @@ class ErrorLedIndicator {
       }
       case State::FlashOff: {
         if (timer_.timeOver()) {
-          currentFlashIndex_++;
-          if (currentFlashIndex_ >= flashSequenceSize_) {
+          current_flash_index_++;
+          if (current_flash_index_ >= flash_sequence_sze_) {
             state_ = State::Idle;
           } else {
             led_.write(true);
-            timer_.restart(isLongFlash(currentFlashIndex_) ? Long_Flash
-                                                           : Short_Flash);
+            timer_.restart(isLongFlash(current_flash_index_) ? Long_Flash
+                                                             : Short_Flash);
             state_ = State::FlashOn;
           }
         }
@@ -110,8 +110,7 @@ class ErrorLedIndicator {
   ifc::ITime<MsT>& time_;
   Timer<MsT> timer_;
 
-  bool has_error_ = false;
-  ErrorT error_code_ = ErrorT::None;
+  std::optional<ErrorT> error_code_;
 
   static constexpr std::size_t bitsNeeded() {
     auto temp = std::bit_width(static_cast<std::size_t>(ErrorT::Size));
@@ -119,9 +118,9 @@ class ErrorLedIndicator {
   }
   static constexpr std::size_t Max_Flash_Sequence_Size = bitsNeeded();
 
-  std::bitset<Max_Flash_Sequence_Size> flashSequence_;
-  std::size_t flashSequenceSize_ = 0;
-  std::size_t currentFlashIndex_ = 0;
+  std::bitset<Max_Flash_Sequence_Size> flash_sequence_;
+  std::size_t flash_sequence_sze_ = 0;
+  std::size_t current_flash_index_ = 0;
 
   enum class State { Idle, WaitingBetweenSequences, FlashOn, FlashOff };
   State state_ = State::Idle;
@@ -132,33 +131,32 @@ class ErrorLedIndicator {
   const MsT Pause_Between_Sequences;
 
   void resetState() {
-    has_error_ = false;
     state_ = State::Idle;
-    currentFlashIndex_ = 0;
+    current_flash_index_ = 0;
     led_.write(false);
   }
 
-  [[nodiscard]] constexpr bool isLongFlash(std::size_t index) const {
-    if (index < flashSequenceSize_) {
-      return flashSequence_[index];
+  bool isLongFlash(std::size_t index) const {
+    if (index < flash_sequence_sze_) {
+      return flash_sequence_[index];
     }
     return false;
   }
 
   void generateFlashSequence() {
-    flashSequence_.reset();
+    flash_sequence_.reset();
 
-    if (error_code_ == ErrorT::None) {
-      flashSequenceSize_ = 1;
+    if (!error_code_) {
+      flash_sequence_sze_ = 1;
       return;
     }
 
-    auto temp = static_cast<std::size_t>(error_code_);
-    flashSequenceSize_ = std::bit_width(temp);
+    auto temp = static_cast<std::size_t>(error_code_.value());
+    flash_sequence_sze_ = std::bit_width(temp);
 
-    for (std::size_t i = 0; i < flashSequenceSize_; ++i) {
+    for (std::size_t i = 0; i < flash_sequence_sze_; ++i) {
       if ((temp & (1u << i)) != 0) {
-        flashSequence_.set(flashSequenceSize_ - i - 1);
+        flash_sequence_.set(flash_sequence_sze_ - i - 1);
       }
     }
   }

@@ -50,7 +50,7 @@ class IoSyncAdapter : public IIO_Sync<Baudrate> {
  private:
   IIO_Async<Baudrate>& io_;
   TimeT& time_;
-  std::function<TimeUnitT(Baudrate baud, std::size_t size)>&& calc_timeout_;
+  std::function<TimeUnitT(Baudrate baud, std::size_t size)> calc_timeout_;
 };
 
 static_assert(

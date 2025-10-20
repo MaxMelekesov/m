@@ -12,7 +12,6 @@
 #define COROUTINETASK_HPP
 
 #include <coroutine>
-#include <exception>
 
 namespace m {
 

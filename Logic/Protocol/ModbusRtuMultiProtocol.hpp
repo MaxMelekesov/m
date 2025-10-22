@@ -151,7 +151,6 @@ class ModbusRtuMultiProtocol {
       case State::Idle: {
         if (running_) {
           if (data_link_.startReceive(rx_buf_)) {
-            rx_led_.toggle();
             state_ = State::ProcessPacket;
             return true;
           } else {
@@ -161,9 +160,8 @@ class ModbusRtuMultiProtocol {
       } break;
       case State::ProcessPacket: {
         if (auto value = data_link_.getPacket(); value) {
-          rx_led_.toggle();
           tx_packet_size_ = process(value.value(), tx_buf_);
-
+          rx_led_.toggle();
           if (!tx_packet_size_) {
             state_ = State::Idle;
             return handle();
@@ -188,7 +186,6 @@ class ModbusRtuMultiProtocol {
       case State::TransmitResponse: {
         if (auto value = data_link_.transmitDone(); value) {
           if (value.value()) {
-            tx_led_.toggle();
             state_ = State::Idle;
             return handle();
           } else {

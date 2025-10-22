@@ -54,16 +54,23 @@ class CoroutineTask {
     if (handle_) handle_.destroy();
   }
 
-  bool done() { return handle_ && handle_.done(); }
+  bool done() {
+    if (!handle_) return true;
+    return handle_.done();
+  }
 
   bool resume() {
-    if (!done()) return false;
-    handle_();
-    return true;
+    if (!handle_) return false;
+    if (!handle_.done()) {
+      handle_();
+      return true;
+    }
+    return false;
   }
 
   ResultType result() {
-    return done() ? handle_.promise().result_ : ResultType{0};
+    return (handle_ && handle_.done()) ? handle_.promise().result_
+                                       : ResultType{0};
   }
 
  protected:
@@ -108,12 +115,18 @@ class CoroutineTask<void> {
     if (handle_) handle_.destroy();
   }
 
-  bool done() { return handle_ && handle_.done(); }
+  bool done() {
+    if (!handle_) return true;
+    return handle_.done();
+  }
 
   bool resume() {
-    if (!done()) return false;
-    handle_();
-    return true;
+    if (!handle_) return false;
+    if (!handle_.done()) {
+      handle_();
+      return true;
+    }
+    return false;
   }
 
  protected:

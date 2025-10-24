@@ -11,7 +11,6 @@
 #ifndef MEAN_FILTER_HPP
 #define MEAN_FILTER_HPP
 
-#include <algorithm>
 #include <array>
 #include <type_traits>
 
@@ -37,13 +36,13 @@ namespace m {
 template <typename T, std::size_t N>
 class MeanFilter {
  public:
-  MeanFilter() : window_size_(N) {}
-  MeanFilter(std::size_t size) : window_size_(size) {}
+  constexpr MeanFilter() : window_size_(N) {}
+  constexpr MeanFilter(std::size_t size) : window_size_(size) {}
 
-  T add(T value) {
+  constexpr T add(T value) {
     if (first_run_) {
       first_run_ = false;
-      std::fill(window_.begin(), window_.end(), value);
+      window_.fill(value);
       sum_ = value * window_size_;
       return value;
     }
@@ -60,7 +59,7 @@ class MeanFilter {
     }
   }
 
-  bool setWindowSize(std::size_t size) {
+  constexpr bool setWindowSize(std::size_t size) {
     if (size < 1 || size > N) {
       return false;
     }
@@ -69,9 +68,9 @@ class MeanFilter {
     return true;
   }
 
-  std::size_t getWindowSize() const { return window_size_; }
+  constexpr std::size_t getWindowSize() const { return window_size_; }
 
-  void clear() {
+  constexpr void clear() {
     index_ = 0;
     first_run_ = true;
     sum_ = T{};

@@ -689,12 +689,13 @@ class ModbusRtuMultiProtocol {
     }
 
     std::span<uint8_t> regs = rx_buf.subspan(5, regs_num * 2);
+    std::copy(rx_buf.begin(), rx_buf.begin() + 4, tx_buf.begin());
+    swapBytesInSpan(regs);
 
     if (auto err = cb_[addr_index].wmhr_cb(start_address, regs_num, regs);
         err) {
       return err;
     } else {
-      std::copy(rx_buf.begin(), rx_buf.begin() + 4, tx_buf.begin());
       return std::nullopt;
     }
   }

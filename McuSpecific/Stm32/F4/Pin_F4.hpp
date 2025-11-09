@@ -152,15 +152,25 @@ class Pin final : public m::ifc::mcu::IPin {
         if (port_init_count[3]++ == 0) __HAL_RCC_GPIOD_CLK_ENABLE();
       } else if (port == GPIOE) {
         if (port_init_count[4]++ == 0) __HAL_RCC_GPIOE_CLK_ENABLE();
-      } else if (port == GPIOF) {
+      }
+#ifdef GPIOF
+      else if (port == GPIOF) {
         if (port_init_count[5]++ == 0) __HAL_RCC_GPIOF_CLK_ENABLE();
-      } else if (port == GPIOG) {
+      }
+#endif
+#ifdef GPIOG
+      else if (port == GPIOG) {
         if (port_init_count[6]++ == 0) __HAL_RCC_GPIOG_CLK_ENABLE();
-      } else if (port == GPIOH) {
+      }
+#endif
+      else if (port == GPIOH) {
         if (port_init_count[7]++ == 0) __HAL_RCC_GPIOH_CLK_ENABLE();
-      } else if (port == GPIOI) {
+      }
+#ifdef GPIOI
+      else if (port == GPIOI) {
         if (port_init_count[8]++ == 0) __HAL_RCC_GPIOI_CLK_ENABLE();
       }
+#endif
     }
 
     void disableClock(GPIO_TypeDef* port) noexcept {
@@ -174,15 +184,25 @@ class Pin final : public m::ifc::mcu::IPin {
         if (port_init_count[3]-- == 1) __HAL_RCC_GPIOD_CLK_DISABLE();
       } else if (port == GPIOE) {
         if (port_init_count[4]-- == 1) __HAL_RCC_GPIOE_CLK_DISABLE();
-      } else if (port == GPIOF) {
+      }
+#ifdef GPIOF
+      else if (port == GPIOF) {
         if (port_init_count[5]-- == 1) __HAL_RCC_GPIOF_CLK_DISABLE();
-      } else if (port == GPIOG) {
+      }
+#endif
+#ifdef GPIOG
+      else if (port == GPIOG) {
         if (port_init_count[6]-- == 1) __HAL_RCC_GPIOG_CLK_DISABLE();
-      } else if (port == GPIOH) {
+      }
+#endif
+      else if (port == GPIOH) {
         if (port_init_count[7]-- == 1) __HAL_RCC_GPIOH_CLK_DISABLE();
-      } else if (port == GPIOI) {
+      }
+#ifdef GPIOI
+      else if (port == GPIOI) {
         if (port_init_count[8]-- == 1) __HAL_RCC_GPIOI_CLK_DISABLE();
       }
+#endif
     }
   };
 

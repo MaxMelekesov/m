@@ -8,9 +8,10 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef USART_RS485_H
-#define USART_RS485_H
+#ifndef USART_RS485_HPP
+#define USART_RS485_HPP
 
+#include <Bps.hpp>
 #include <IIO_Async.hpp>
 #include <IPin.hpp>
 #include <cstdint>
@@ -18,12 +19,13 @@
 
 #include "stm32f4xx_hal_uart.h"
 
-class UsartRs485 final : public m::ifc::IIO_Async {
+class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
  public:
-  UsartRs485(m::ifc::mcu::IPin& dr_en, UART_HandleTypeDef& huart, uint32_t baud)
+  UsartRs485(m::ifc::mcu::IPin& dr_en, UART_HandleTypeDef& huart,
+             Bps<uint32_t> baud)
       : dr_en_(dr_en), huart_(huart), baud_(baud) {}
 
-  uint32_t bytesToWrite() override { return huart_.hdmatx->Instance->NDTR; }
+  std::size_t bytesToWrite() override { return huart_.hdmatx->Instance->NDTR; }
 
   bool writeAsync(std::span<uint8_t const> data) override {
     dr_en_.write(1);
@@ -60,7 +62,7 @@ class UsartRs485 final : public m::ifc::IIO_Async {
     return true;
   }
 
-  uint32_t bytesAvailable() override {
+  std::size_t bytesAvailable() override {
     return rx_size_ - huart_.hdmarx->Instance->NDTR;
   }
 
@@ -99,9 +101,9 @@ class UsartRs485 final : public m::ifc::IIO_Async {
     return true;
   }
 
-  uint32_t getBaudrate() override { return baud_ / 10; }
+  Bps<uint32_t> getBaudrate() override { return baud_ / 10; }
 
-  bool setBaudrate(uint32_t baud) override { return false; }
+  bool setBaudrate(Bps<uint32_t> baud) override { return false; }
 
   bool error() override {
     return HAL_UART_GetError(&huart_) != HAL_UART_ERROR_NONE;
@@ -110,11 +112,11 @@ class UsartRs485 final : public m::ifc::IIO_Async {
  private:
   m::ifc::mcu::IPin& dr_en_;
   UART_HandleTypeDef& huart_;
-  uint32_t baud_;
+  Bps<uint32_t> baud_;
 
   bool dma_tx_started_ = false;
   bool dma_rx_started_ = false;
   uint32_t rx_size_ = 0;
 };
 
-#endif  // USART_RS485_H
+#endif  // USART_RS485_HPP

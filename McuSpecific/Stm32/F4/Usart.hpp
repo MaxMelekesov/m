@@ -8,21 +8,22 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef USART_H
-#define USART_H
+#ifndef USART_HPP
+#define USART_HPP
 
+#include <Bps.hpp>
 #include <IIO_Async.hpp>
 #include <cstdint>
 #include <span>
 
 #include "stm32f4xx_hal_uart.h"
 
-class Usart final : public m::ifc::IIO_Async {
+class Usart final : public m::ifc::IIO_Async<Bps<uint32_t>> {
  public:
-  Usart(UART_HandleTypeDef& huart, uint32_t baud)
+  Usart(UART_HandleTypeDef& huart, Bps<uint32_t> baud)
       : huart_(huart), baud_(baud) {}
 
-  uint32_t bytesToWrite() override { return huart_.hdmatx->Instance->NDTR; }
+  std::size_t bytesToWrite() override { return huart_.hdmatx->Instance->NDTR; }
 
   bool writeAsync(std::span<uint8_t const> data) override {
     auto res = (HAL_UART_Transmit_DMA(&huart_, (uint8_t*)data.data(),
@@ -46,7 +47,9 @@ class Usart final : public m::ifc::IIO_Async {
   bool writeDone() override {
     if (dma_tx_started_) {
       if (bytesToWrite() == 0) {
-        if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
+        auto status = HAL_UART_GetState(&huart_);
+        if (status == HAL_UART_STATE_READY ||
+            status == HAL_UART_STATE_BUSY_RX) {
           dma_tx_started_ = false;
           return true;
         } else {
@@ -58,7 +61,7 @@ class Usart final : public m::ifc::IIO_Async {
     return true;
   }
 
-  uint32_t bytesAvailable() override {
+  std::size_t bytesAvailable() override {
     return rx_size_ - huart_.hdmarx->Instance->NDTR;
   }
 
@@ -86,7 +89,9 @@ class Usart final : public m::ifc::IIO_Async {
     if (dma_rx_started_) {
       if (bytesAvailable() == rx_size_) {
         if (abortRead()) {
-          if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
+          auto status = HAL_UART_GetState(&huart_);
+          if (status == HAL_UART_STATE_READY ||
+              status == HAL_UART_STATE_BUSY_TX) {
             return true;
           }
         }
@@ -96,9 +101,9 @@ class Usart final : public m::ifc::IIO_Async {
     return true;
   }
 
-  uint32_t getBaudrate() override { return baud_ / 10; }
+  Bps<uint32_t> getBaudrate() override { return baud_ / 10; }
 
-  bool setBaudrate(uint32_t baud) override { return false; }
+  bool setBaudrate(Bps<uint32_t> baud) override { return false; }
 
   bool error() override {
     return HAL_UART_GetError(&huart_) != HAL_UART_ERROR_NONE;
@@ -106,11 +111,11 @@ class Usart final : public m::ifc::IIO_Async {
 
  private:
   UART_HandleTypeDef& huart_;
-  uint32_t baud_;
+  Bps<uint32_t> baud_;
 
   bool dma_tx_started_ = false;
   bool dma_rx_started_ = false;
   uint32_t rx_size_ = 0;
 };
 
-#endif  // USART_H
+#endif  // USART_HPP

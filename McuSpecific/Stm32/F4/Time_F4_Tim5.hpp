@@ -17,10 +17,19 @@
 
 #include "stm32f4xx_hal.h"
 
-class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
- public:
-  using type = Us<uint32_t>;
+using MsT = Ms<uint32_t>;
+using UsT = Us<uint32_t>;
 
+static inline constexpr UsT operator""_Us(uint64_t value) {
+  return UsT{static_cast<UsT::type>(value)};
+}
+
+static inline constexpr MsT operator""_Ms(uint64_t value) {
+  return MsT{static_cast<MsT::type>(value)};
+}
+
+class TimeUs final : public m::ifc::ITime<UsT> {
+ public:
   TimeUs() {
     TIM_ClockConfigTypeDef sClockSourceConfig = {0};
     TIM_MasterConfigTypeDef sMasterConfig = {0};
@@ -53,47 +62,44 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
   TimeUs(TimeUs&&) = delete;
   TimeUs& operator=(TimeUs&&) = delete;
 
-  void delay(Us<uint32_t> value) override {
-    uint32_t start = htim5_.Instance->CNT;
-    uint32_t delay = value.value();
+  void delay(UsT value) override {
+    UsT start = UsT{htim5_.Instance->CNT};
+    UsT delay = UsT{value.value()};
     while (1) {
-      uint32_t now = htim5_.Instance->CNT;
-      uint32_t diff = now - start;
+      UsT now = UsT{htim5_.Instance->CNT};
+      UsT diff = now - start;
       if (diff >= delay) break;
     }
   }
 
-  Us<uint32_t> getTick() override { return Us<uint32_t>{htim5_.Instance->CNT}; }
+  UsT getTick() override { return UsT{htim5_.Instance->CNT}; }
 
-  Us<uint32_t> getDiff(Us<uint32_t> value) override {
-    uint32_t diff = htim5_.Instance->CNT;
-    diff -= value.value();
-    return Us<uint32_t>{diff};
+  UsT getDiff(UsT value) override {
+    UsT diff = UsT{htim5_.Instance->CNT};
+    diff -= value;
+    return diff;
   }
 
  private:
   TIM_HandleTypeDef htim5_{0};
 };
 
-class TimeMs final : public m::ifc::ITime<Ms<uint32_t>> {
+class TimeMs final : public m::ifc::ITime<MsT> {
  public:
-  using type = Ms<uint32_t>;
-
   TimeMs() {}
-
   TimeMs(const TimeMs&) = delete;
   TimeMs& operator=(const TimeMs&) = delete;
   TimeMs(TimeMs&&) = delete;
   TimeMs& operator=(TimeMs&&) = delete;
 
-  void delay(Ms<uint32_t> value) override { HAL_Delay(value.value()); }
+  void delay(MsT value) override { HAL_Delay(value.value()); }
 
-  Ms<uint32_t> getTick() override { return Ms<uint32_t>{HAL_GetTick()}; }
+  MsT getTick() override { return MsT{HAL_GetTick()}; }
 
-  Ms<uint32_t> getDiff(Ms<uint32_t> value) override {
-    uint32_t diff = HAL_GetTick();
-    diff -= value.value();
-    return Ms<uint32_t>{diff};
+  MsT getDiff(MsT value) override {
+    MsT diff = MsT{HAL_GetTick()};
+    diff -= value;
+    return diff;
   }
 };
 

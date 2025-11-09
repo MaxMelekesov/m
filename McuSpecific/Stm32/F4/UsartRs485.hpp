@@ -29,8 +29,9 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
 
   bool writeAsync(std::span<uint8_t const> data) override {
     dr_en_.write(1);
-    auto res = (HAL_UART_Transmit_DMA(&huart_, (uint8_t*)data.data(),
-                                      data.size()) == HAL_OK);
+    auto res = (HAL_UART_Transmit_DMA(
+                    &huart_, reinterpret_cast<uint8_t const*>(data.data()),
+                    data.size()) == HAL_OK);
     if (res) {
       dma_tx_started_ = true;
     }
@@ -68,8 +69,9 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
 
   bool readAsync(std::span<uint8_t> data) override {
     dr_en_.write(0);
-    bool res = (HAL_UART_Receive_DMA(&huart_, (uint8_t*)data.data(),
-                                     data.size()) == HAL_OK);
+    bool res =
+        (HAL_UART_Receive_DMA(&huart_, reinterpret_cast<uint8_t*>(data.data()),
+                              data.size()) == HAL_OK);
     if (res) {
       dma_rx_started_ = true;
       rx_size_ = data.size();

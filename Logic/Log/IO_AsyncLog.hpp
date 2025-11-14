@@ -12,6 +12,7 @@
 #define IO_ASYNC_LOG_HPP
 #include <IIO_Async.hpp>
 #include <ILog.hpp>
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <ranges>
@@ -22,7 +23,7 @@ namespace m {
 template <std::size_t Line_Length = 63, std::size_t Lines = 100>
 class IO_AsyncLog : public m::ifc::ILog {
  public:
-  explicit IO_AsyncLog(m::ifc::IIO_Async& io) : io_(io) {}
+  explicit IO_AsyncLog(m::ifc::IIO_Async<Bps<uint32_t>>& io) : io_(io) {}
 
   void add(std::string_view text) override {
     if (text.empty()) {
@@ -67,7 +68,7 @@ class IO_AsyncLog : public m::ifc::ILog {
   }
 
  private:
-  m::ifc::IIO_Async& io_;
+  m::ifc::IIO_Async<Bps<uint32_t>>& io_;
 
   std::array<std::array<char, Line_Length + 1>, Lines> buffer_;
   std::size_t write_index_ = 0;

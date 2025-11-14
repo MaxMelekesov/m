@@ -97,6 +97,10 @@ class Unit {
     return lhs;
   }
 
+  friend constexpr type operator/(const Derived& lhs, const Derived& rhs) {
+    return lhs.value() / rhs.value();
+  }
+
   constexpr auto operator<=>(const Unit&) const = default;
 
   type value_;

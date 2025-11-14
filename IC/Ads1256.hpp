@@ -11,6 +11,7 @@
 #define ADS1256_HPP
 
 #include <IIO_Async.hpp>
+#include <IIt.hpp>
 #include <IPin.hpp>
 #include <ITime.hpp>
 #include <Ic.hpp>
@@ -42,7 +43,7 @@ struct Ads1256 {
     };
     struct Id : public m::BitField<Id, 4> {};
 
-    m::Reg<uint8_t, Drdy, Bufen, Acal, Order, Id> value;
+    m::Reg<uint8_t, Drdy, Bufen, Acal, Order, Id> value{0x01};
   };
   struct WriteStatus : public ReadStatus {};
 
@@ -148,17 +149,17 @@ struct Ads1256 {
                    m::Pair<WriteDrate, 0x53>, m::Pair<Selfcal, 0xF0>>;
 };
 
-template <m::ifc::CUs UsT, m::ifc::CTime<UsT> Time, m::ifc::CIO_Async Io>
-class Ads1256Ic : public Ic<Ads1256Ic<UsT, Time, Io>, Ads1256> {
+template <m::ifc::CUs Us, m::ifc::CTime<Us> Time, m::ifc::CIO_Async Io>
+class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
  public:
-  Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs, UsT add_timeout)
+  Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs, Us add_timeout)
       : time_(time), io_(io), cs_(cs), add_timeout_(add_timeout) {}
 
  private:
   Time& time_;
   Io& io_;
   m::ifc::mcu::IPin& cs_;
-  UsT add_timeout_;
+  Us add_timeout_;
 
   std::array<uint8_t, 3> read_buf_;
   std::array<uint8_t, 3> write_buf_;
@@ -189,7 +190,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<UsT, Time, Io>, Ads1256> {
     auto write_span = std::span<const uint8_t>(write_buf_).first(2);
     if (!writeSpan(write_span)) return std::nullopt;
 
-    time_.delay(UsT{7});  // t6 datasheet
+    time_.delay(Us{7});  // t6 datasheet
 
     read_buf_[0] = 0;
     auto read_span = std::span<uint8_t>(read_buf_).first(1);
@@ -205,7 +206,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<UsT, Time, Io>, Ads1256> {
     auto write_span = std::span<const uint8_t>(write_buf_).first(1);
     if (!writeSpan(write_span)) return std::nullopt;
 
-    time_.delay(UsT{7});  // t6 datasheet
+    time_.delay(Us{7});  // t6 datasheet
 
     read_buf_.fill(0);
     auto read_span = std::span<uint8_t>(read_buf_).first(3);
@@ -232,7 +233,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<UsT, Time, Io>, Ads1256> {
 
     if (!m::execWithTimeout(
             time_, [&]() { return io_.writeDone(); },
-            span.size() * UsT{1'000} / io_.getBaudrate().value() +
+            span.size() * Us{1'000} / io_.getBaudrate().value() +
                 add_timeout_)) {
       cs_.write(0);
       return false;
@@ -247,7 +248,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<UsT, Time, Io>, Ads1256> {
 
     if (!m::execWithTimeout(
             time_, [&]() { return io_.readDone(); },
-            span.size() * UsT{1'000} / io_.getBaudrate().value() +
+            span.size() * Us{1'000} / io_.getBaudrate().value() +
                 add_timeout_)) {
       cs_.write(0);
       return false;
@@ -256,7 +257,55 @@ class Ads1256Ic : public Ic<Ads1256Ic<UsT, Time, Io>, Ads1256> {
     return true;
   }
 
-  friend class Ic<Ads1256Ic<UsT, Time, Io>, Ads1256>;
+  friend class Ic<Ads1256Ic<Us, Time, Io>, Ads1256>;
+};
+
+template <m::ifc::CUs Us, m::ifc::CTime<Us> Time, m::ifc::CIO_Async Io,
+          m::ifc::mcu::CIt It>
+class Ads1256Reader {
+ public:
+  Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& it)
+      : time_(time), io_(io), cs_(cs), it_(it) {
+    it_.setCallback([&]() {
+      if (auto value = adc_ic_.template read<Ads1256::Data>(); value) {
+        auto reg = value.value();
+        uint32_t reg_raw = reg.value.getRaw();
+        if (reg_raw & 0x80'00'00) {
+          reg_raw |= 0xFF'00'00'00;
+        }
+        if (data_.size()) {
+          data_[0] = reg_raw;
+          data_ = data_.subspan(1);
+        } else {
+          it_.stop();
+        }
+      }
+    });
+  }
+
+  bool startRead(std::span<uint32_t> data) {
+    data_ = data;
+    size_ = data_.size();
+    if (!it_.start()) return false;
+    return true;
+  }
+
+  bool readDone() { return !it_.running(); }
+
+  std::size_t readed() { return size_ - data_.size(); }
+
+  bool stopRead() { return it_.stop(); }
+
+ private:
+  Time& time_;
+  Io& io_;
+  m::ifc::mcu::IPin& cs_;
+  It& it_;
+
+  Ads1256Ic<Us, Time, Io> adc_ic_{time_, io_, cs_, Us{20}};
+
+  std::span<uint32_t> data_;
+  std::size_t size_;
 };
 
 }  // namespace m::ic

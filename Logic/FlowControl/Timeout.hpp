@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef TIMEOUT_H
-#define TIMEOUT_H
+#ifndef TIMEOUT_HPP
+#define TIMEOUT_HPP
 
 #include <ITime.hpp>
 #include <concepts>
@@ -51,4 +51,4 @@ class Timeout {
 };
 }  // namespace m
 
-#endif  // TIMEOUT_H
+#endif  // TIMEOUT_HPP

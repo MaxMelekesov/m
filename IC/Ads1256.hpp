@@ -264,9 +264,9 @@ template <m::ifc::CUs Us, m::ifc::CTime<Us> Time, m::ifc::CIO_Async Io,
           m::ifc::mcu::CIt It>
 class Ads1256Reader {
  public:
-  Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& it)
-      : time_(time), io_(io), cs_(cs), it_(it) {
-    it_.setCallback([&]() {
+  Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& drdy)
+      : time_(time), io_(io), cs_(cs), drdy_(drdy) {
+    drdy_.setCallback([&]() {
       if (auto value = adc_ic_.template read<Ads1256::Data>(); value) {
         auto reg = value.value();
         uint32_t reg_raw = reg.value.getRaw();
@@ -277,7 +277,7 @@ class Ads1256Reader {
           data_[0] = reg_raw;
           data_ = data_.subspan(1);
         } else {
-          it_.stop();
+          drdy_.stop();
         }
       }
     });
@@ -286,21 +286,21 @@ class Ads1256Reader {
   bool startRead(std::span<uint32_t> data) {
     data_ = data;
     size_ = data_.size();
-    if (!it_.start()) return false;
+    if (!drdy_.start()) return false;
     return true;
   }
 
-  bool readDone() { return !it_.running(); }
+  bool readDone() { return !drdy_.running(); }
 
   std::size_t readed() { return size_ - data_.size(); }
 
-  bool stopRead() { return it_.stop(); }
+  bool stopRead() { return drdy_.stop(); }
 
  private:
   Time& time_;
   Io& io_;
   m::ifc::mcu::IPin& cs_;
-  It& it_;
+  It& drdy_;
 
   Ads1256Ic<Us, Time, Io> adc_ic_{time_, io_, cs_, Us{20}};
 

@@ -28,9 +28,13 @@ concept CIcInfo = requires {
 };
 
 template <typename T, typename Reg>
-concept CIc = requires(T t, Reg reg) {
-  { t.template writeImpl<Reg>(reg) } -> std::same_as<bool>;
+concept CIcRegReadable = requires(T t, Reg reg) {
   { t.template readImpl<Reg>() } -> std::same_as<std::optional<Reg>>;
+};
+
+template <typename T, typename Reg>
+concept CIcRegWritable = requires(T t, Reg reg) {
+  { t.template writeImpl<Reg>(reg) } -> std::same_as<bool>;
 };
 
 template <typename Derived, CIcInfo IcInfo>
@@ -39,7 +43,8 @@ class Ic {
   template <typename Reg>
     requires m::tuple_contains<Reg, typename IcInfo::Regs>
   bool write(Reg reg) {
-    static_assert(CIc<Derived, Reg>, "Derived must implement CIc interface");
+    static_assert(CIcRegWritable<Derived, Reg>,
+                  "Derived must implement CIc interface");
 
     return static_cast<Derived*>(this)->template writeImpl<Reg>(reg);
   }
@@ -47,7 +52,8 @@ class Ic {
   template <typename Reg>
     requires m::tuple_contains<Reg, typename IcInfo::Regs>
   std::optional<Reg> read() {
-    static_assert(CIc<Derived, Reg>, "Derived must implement CIc interface");
+    static_assert(CIcRegReadable<Derived, Reg>,
+                  "Derived must implement CIc interface");
 
     return static_cast<Derived*>(this)->template readImpl<Reg>();
   }

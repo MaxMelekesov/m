@@ -200,7 +200,9 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
     return reg;
   }
 
-  std::optional<Ads1256::Data> readImpl() {
+  template <typename Reg>
+    requires std::is_same_v<Reg, Ads1256::Data>
+  std::optional<Reg> readImpl() {
     write_buf_[0] = Ads1256::Map::value<Ads1256::Data>();
 
     auto write_span = std::span<const uint8_t>(write_buf_).first(1);

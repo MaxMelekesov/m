@@ -175,7 +175,11 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
     write_buf_[2] = static_cast<uint8_t>(reg.value.getRaw());
 
     auto write_span = std::span<const uint8_t>(write_buf_).first(3);
-    return writeSpan(write_span);
+    cs_.write(1);
+    bool res = writeSpan(write_span);
+    cs_.write(0);
+
+    return res;
   }
 
   template <typename Reg>
@@ -188,13 +192,21 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
     write_buf_[1] = 0;  // register count -1
 
     auto write_span = std::span<const uint8_t>(write_buf_).first(2);
-    if (!writeSpan(write_span)) return std::nullopt;
+    cs_.write(1);
+    if (!writeSpan(write_span)) {
+      cs_.write(0);
+      return std::nullopt;
+    }
 
     time_.delay(Us{7});  // t6 datasheet
 
     read_buf_[0] = 0;
     auto read_span = std::span<uint8_t>(read_buf_).first(1);
-    if (!readSpan(read_span)) return std::nullopt;
+    if (!readSpan(read_span)) {
+      cs_.write(0);
+      return std::nullopt;
+    }
+    cs_.write(0);
 
     Reg reg{read_buf_[0]};
     return reg;
@@ -206,13 +218,21 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
     write_buf_[0] = Ads1256::Map::value<Ads1256::Data>();
 
     auto write_span = std::span<const uint8_t>(write_buf_).first(1);
-    if (!writeSpan(write_span)) return std::nullopt;
+    cs_.write(1);
+    if (!writeSpan(write_span)) {
+      cs_.write(0);
+      return std::nullopt;
+    }
 
     time_.delay(Us{7});  // t6 datasheet
 
     read_buf_.fill(0);
     auto read_span = std::span<uint8_t>(read_buf_).first(3);
-    if (!readSpan(read_span)) return std::nullopt;
+    if (!readSpan(read_span)) {
+      cs_.write(0);
+      return std::nullopt;
+    }
+    cs_.write(0);
     uint32_t raw = (static_cast<uint32_t>(read_buf_[0]) << 16) |
                    (static_cast<uint32_t>(read_buf_[1]) << 8) |
                    (static_cast<uint32_t>(read_buf_[2]));
@@ -226,36 +246,35 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
     write_buf_[0] = Ads1256::Map::template value<Reg>();
 
     auto write_span = std::span<const uint8_t>(write_buf_).first(1);
-    return writeSpan(write_span);
+    cs_.write(1);
+    bool res = writeSpan(write_span);
+    cs_.write(0);
+    return res;
   }
 
   bool writeSpan(std::span<const uint8_t> span) {
-    cs_.write(1);
     if (!io_.writeAsync(span)) return false;
 
     if (!m::execWithTimeout(
             time_, [&]() { return io_.writeDone(); },
             span.size() * Us{1'000} / io_.getBaudrate().value() +
                 add_timeout_)) {
-      cs_.write(0);
       return false;
     }
-    cs_.write(0);
+
     return true;
   }
 
   bool readSpan(std::span<uint8_t> span) {
-    cs_.write(1);
     if (!io_.readAsync(read_buf_)) return false;
 
     if (!m::execWithTimeout(
             time_, [&]() { return io_.readDone(); },
             span.size() * Us{1'000} / io_.getBaudrate().value() +
                 add_timeout_)) {
-      cs_.write(0);
       return false;
     }
-    cs_.write(0);
+
     return true;
   }
 
@@ -276,7 +295,7 @@ class Ads1256Reader {
           reg_raw |= 0xFF'00'00'00;
         }
         if (data_.size()) {
-          data_[0] = reg_raw;
+          data_[0] = static_cast<int32_t>(reg_raw);
           data_ = data_.subspan(1);
         } else {
           drdy_.stop();
@@ -285,7 +304,7 @@ class Ads1256Reader {
     });
   }
 
-  bool startRead(std::span<uint32_t> data) {
+  bool startRead(std::span<int32_t> data) {
     data_ = data;
     size_ = data_.size();
     if (!drdy_.start()) return false;
@@ -306,7 +325,7 @@ class Ads1256Reader {
 
   Ads1256Ic<Us, Time, Io> adc_ic_{time_, io_, cs_, Us{20}};
 
-  std::span<uint32_t> data_;
+  std::span<int32_t> data_;
   std::size_t size_;
 };
 

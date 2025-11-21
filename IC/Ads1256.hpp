@@ -30,6 +30,20 @@ struct Ads1256 {
     m::Reg<uint32_t, Value, m::UnusedField<8>> value;
   };
 
+  struct DataC {
+    struct Value : public m::BitField<Value, 24> {};
+
+    m::Reg<uint32_t, Value, m::UnusedField<8>> value;
+  };
+
+  struct RDataC {
+    m::Reg<uint8_t, m::UnusedField<8>> value;
+  };
+
+  struct SDataC {
+    m::Reg<uint8_t, m::UnusedField<8>> value;
+  };
+
   struct ReadStatus {
     struct Drdy : public m::BitField<Drdy, 1> {};
     struct Bufen : public m::BitField<Bufen, 1> {
@@ -137,16 +151,17 @@ struct Ads1256 {
     m::Reg<uint8_t, m::UnusedField<8>> value;
   };
 
-  using Regs =
-      std::tuple<Data, ReadStatus, ReadMux, ReadAdcon, ReadDrate, WriteStatus,
-                 WriteMux, WriteAdcon, WriteDrate, Selfcal>;
+  using Regs = std::tuple<Data, DataC, RDataC, SDataC, ReadStatus, ReadMux,
+                          ReadAdcon, ReadDrate, WriteStatus, WriteMux,
+                          WriteAdcon, WriteDrate, Selfcal>;
 
-  using Map =
-      m::StaticMap<uint16_t, m::Pair<Data, 0x01>, m::Pair<ReadStatus, 0x10>,
-                   m::Pair<ReadMux, 0x11>, m::Pair<ReadAdcon, 0x12>,
-                   m::Pair<ReadDrate, 0x13>, m::Pair<WriteStatus, 0x50>,
-                   m::Pair<WriteMux, 0x51>, m::Pair<WriteAdcon, 0x52>,
-                   m::Pair<WriteDrate, 0x53>, m::Pair<Selfcal, 0xF0>>;
+  using Map = m::StaticMap<uint16_t, m::Pair<Data, 0x01>, m::Pair<DataC, 0x01>,
+                           m::Pair<RDataC, 0x03>, m::Pair<SDataC, 0x0F>,
+                           m::Pair<ReadStatus, 0x10>, m::Pair<ReadMux, 0x11>,
+                           m::Pair<ReadAdcon, 0x12>, m::Pair<ReadDrate, 0x13>,
+                           m::Pair<WriteStatus, 0x50>, m::Pair<WriteMux, 0x51>,
+                           m::Pair<WriteAdcon, 0x52>, m::Pair<WriteDrate, 0x53>,
+                           m::Pair<Selfcal, 0xF0>>;
 };
 
 template <m::ifc::CUs Us, m::ifc::CTime<Us> Time, m::ifc::CIO_Async Io>
@@ -242,6 +257,26 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
   }
 
   template <typename Reg>
+    requires std::is_same_v<Reg, Ads1256::DataC>
+  std::optional<Reg> readImpl() {
+    read_buf_.fill(0);
+
+    cs_.write(1);
+    auto read_span = std::span<uint8_t>(read_buf_).first(3);
+    if (!readSpan(read_span)) {
+      cs_.write(0);
+      return std::nullopt;
+    }
+    cs_.write(0);
+    uint32_t raw = (static_cast<uint32_t>(read_buf_[0]) << 16) |
+                   (static_cast<uint32_t>(read_buf_[1]) << 8) |
+                   (static_cast<uint32_t>(read_buf_[2]));
+
+    Ads1256::DataC reg{raw};
+    return reg;
+  }
+
+  template <typename Reg>
   bool writeImpl(Reg reg) {
     write_buf_[0] = Ads1256::Map::template value<Reg>();
 
@@ -288,17 +323,30 @@ class Ads1256Reader {
   Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& drdy)
       : time_(time), io_(io), cs_(cs), drdy_(drdy) {
     drdy_.setCallback([&]() {
-      if (auto value = adc_ic_.template read<Ads1256::Data>(); value) {
-        auto reg = value.value();
-        uint32_t reg_raw = reg.value.getRaw();
-        if (reg_raw & 0x80'00'00) {
-          reg_raw |= 0xFF'00'00'00;
+      if (start_flag_) {
+        if (adc_ic_.write(Ads1256::RDataC{})) {
+          start_flag_ = false;
         }
-        if (data_.size()) {
-          data_[0] = static_cast<int32_t>(reg_raw);
-          data_ = data_.subspan(1);
-        } else {
+        return;
+      } else if (stop_flag_) {
+        if (adc_ic_.write(Ads1256::SDataC{})) {
           drdy_.stop();
+          stop_flag_ = false;
+        }
+        return;
+      } else {
+        if (auto value = adc_ic_.template read<Ads1256::DataC>(); value) {
+          auto reg = value.value();
+          uint32_t reg_raw = reg.value.getRaw();
+          if (reg_raw & 0x80'00'00) {
+            reg_raw |= 0xFF'00'00'00;
+          }
+          if (data_.size()) {
+            data_[0] = static_cast<int32_t>(reg_raw);
+            data_ = data_.subspan(1);
+          } else {
+            stopRead();
+          }
         }
       }
     });
@@ -307,6 +355,7 @@ class Ads1256Reader {
   bool startRead(std::span<int32_t> data) {
     data_ = data;
     size_ = data_.size();
+    start_flag_ = true;
     if (!drdy_.start()) return false;
     return true;
   }
@@ -315,7 +364,10 @@ class Ads1256Reader {
 
   std::size_t readed() { return size_ - data_.size(); }
 
-  bool stopRead() { return drdy_.stop(); }
+  bool stopRead() {
+    stop_flag_ = true;
+    return true;
+  }
 
  private:
   Time& time_;
@@ -327,6 +379,9 @@ class Ads1256Reader {
 
   std::span<int32_t> data_;
   std::size_t size_;
+
+  bool start_flag_ = false;
+  bool stop_flag_ = false;
 };
 
 }  // namespace m::ic

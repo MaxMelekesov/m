@@ -353,6 +353,8 @@ class Ads1256Reader {
   }
 
   bool startRead(std::span<int32_t> data) {
+    if (!readDone()) return false;
+
     data_ = data;
     size_ = data_.size();
     start_flag_ = true;

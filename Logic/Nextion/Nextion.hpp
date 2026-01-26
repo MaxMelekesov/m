@@ -376,8 +376,9 @@ class Nextion
   friend FsmBase;
 };
 
-static_assert(CNextion<Nextion<NextionDataLink<Us<uint32_t>>, 64, 1024>>,
-              "Nextion does not satisfy CNextion concept");
+static_assert(
+    CNextion<Nextion<NextionDataLink<Us<uint32_t>, Bps<uint32_t>>, 64, 1024>>,
+    "Nextion does not satisfy CNextion concept");
 
 }  // namespace m::nxt
 

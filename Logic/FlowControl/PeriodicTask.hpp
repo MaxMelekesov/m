@@ -17,7 +17,7 @@
 
 namespace m {
 
-template <CMs TimeUnit>
+template <m::ifc::CMs TimeUnit>
 class PeriodicTask {
  public:
   using type = TimeUnit;

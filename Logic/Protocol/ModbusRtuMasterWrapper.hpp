@@ -14,14 +14,14 @@
 #include <ModbusRtuMaster.hpp>
 
 namespace m {
-template <CUs UsType>
+template <m::ifc::CUs UsType, m::ifc::CBps BpsType>
 class ModbusRtuMasterWrapper {
  private:
-  using Unit = m::ModbusRtuMaster<UsType>::Unit;
-  using Error = m::ModbusRtuMaster<UsType>::Error;
+  using Unit = m::ModbusRtuMaster<UsType, BpsType>::Unit;
+  using Error = m::ModbusRtuMaster<UsType, BpsType>::Error;
 
  public:
-  ModbusRtuMasterWrapper(m::ModbusRtuMaster<UsType>& modbus)
+  ModbusRtuMasterWrapper(m::ModbusRtuMaster<UsType, BpsType>& modbus)
       : modbus_(modbus) {}
 
   bool readMhr(uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
@@ -98,7 +98,7 @@ class ModbusRtuMasterWrapper {
   }
 
  private:
-  m::ModbusRtuMaster<UsType>& modbus_;
+  m::ModbusRtuMaster<UsType, BpsType>& modbus_;
 
   std::array<uint8_t, 256> response_buf_;
   std::array<uint8_t, 256> request_buf_;

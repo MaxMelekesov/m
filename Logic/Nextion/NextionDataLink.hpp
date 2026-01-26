@@ -20,12 +20,14 @@
 #include <optional>
 #include <ranges>
 
+#include "Bps.hpp"
+
 namespace m::nxt {
 
-template <m::ifc::CUs UsType>
+template <m::ifc::CUs UsType, m::ifc::CBps BpsType>
 class NextionDataLink {
  public:
-  NextionDataLink(m::ifc::ITime<UsType> &time, m::ifc::IIO_Async &io)
+  NextionDataLink(m::ifc::ITime<UsType>& time, m::ifc::IIO_Async<BpsType>& io)
       : io_(io), tx_timeout_timer_{time}, rx_timeout_timer_(time) {}
 
   bool startReceive(std::span<uint8_t> rx_buf) {
@@ -50,7 +52,7 @@ class NextionDataLink {
       if (rx_timeout_timer_.timeOver() && head_ != scan_pos_) {
         // Возвращаем всё, что накопилось (включая возможные терминирующие
         // байты)
-        c::RingSpan span;
+        m::ifc::RingSpan span;
         if (head_ < scan_pos_) {
           span.first = rx_buf_.subspan(head_, scan_pos_ - head_);
           span.second = {};
@@ -67,10 +69,10 @@ class NextionDataLink {
 
     // Сбросить/перезапустить таймер при появлении новых байт
     rx_timeout_timer_.restart(
-        UsType{5 * 1'000'000 / io_.getBaudrate() + 3'000});
+        UsType{5 * 1'000'000 / io_.getBaudrate().value() + 3'000});
 
     // Создаём view на новые данные (от scan_pos_ до tail)
-    c::RingSpan segments;
+    m::ifc::RingSpan segments;
     if (scan_pos_ < tail) {
       segments.first = rx_buf_.subspan(scan_pos_, tail - scan_pos_);
       segments.second = {};
@@ -97,7 +99,7 @@ class NextionDataLink {
         (scan_pos_ + processed + 1) %
         rx_buf_.size();  // +1 чтобы включить байт-терминатор
 
-    c::RingSpan span;
+    m::ifc::RingSpan span;
     if (head_ < packet_end) {
       span.first = rx_buf_.subspan(head_, packet_end - head_);
       span.second = {};
@@ -122,7 +124,7 @@ class NextionDataLink {
     }
 
     tx_timeout_timer_.restart(
-        UsType{tx_buf.size() * 1'000'000 / io_.getBaudrate() + 3'000});
+        UsType{tx_buf.size() * 1'000'000 / io_.getBaudrate().value() + 3'000});
 
     return true;
   }
@@ -160,7 +162,7 @@ class NextionDataLink {
   }
 
  private:
-  ifc::IIO_Async &io_;
+  ifc::IIO_Async<BpsType>& io_;
 
   Timer<UsType> tx_timeout_timer_;
   Timer<UsType> rx_timeout_timer_;
@@ -184,8 +186,9 @@ class NextionDataLink {
   }
 };
 
-static_assert(m::ifc::CRingDataLink<NextionDataLink<Us<uint32_t>>>,
-              "NextionDataLink does not satisfy CDataLink concept");
+static_assert(
+    m::ifc::CRingDataLink<NextionDataLink<Us<uint32_t>, Bps<uint32_t>>>,
+    "NextionDataLink does not satisfy CDataLink concept");
 
 }  // namespace m::nxt
 

@@ -19,9 +19,11 @@
 #include <cstdint>
 #include <optional>
 
+#include "Bps.hpp"
+
 namespace m {
 
-template <CUs UsType>
+template <m::ifc::CUs UsType, m::ifc::CBps BpsType>
 class ModbusRtuMaster {
  public:
   struct Timings {
@@ -29,7 +31,7 @@ class ModbusRtuMaster {
     UsType response_delay;
   };
 
-  ModbusRtuMaster(m::ifc::IIO_Async& io, m::ifc::ITime<UsType>& time,
+  ModbusRtuMaster(m::ifc::IIO_Async<BpsType>& io, m::ifc::ITime<UsType>& time,
                   Timings timings)
       : io_(io),
         time_(time),
@@ -81,7 +83,7 @@ class ModbusRtuMaster {
     }
 
     tx_timer_.restart(
-        UsType{buf_tx.size() * 1'000'000 / io_.getBaudrate() + 1'000});
+        UsType{buf_tx.size() * 1'000'000 / io_.getBaudrate().value() + 1'000});
 
     state_ = State::WaitTx;
     response_ = std::nullopt;
@@ -113,7 +115,7 @@ class ModbusRtuMaster {
     }
 
     tx_timer_.restart(
-        UsType{buf_tx.size() * 1'000'000 / io_.getBaudrate() + 1'000});
+        UsType{buf_tx.size() * 1'000'000 / io_.getBaudrate().value() + 1'000});
 
     state_ = State::WaitTx;
     response_ = std::nullopt;
@@ -166,8 +168,8 @@ class ModbusRtuMaster {
       return false;
     }
 
-    tx_timer_.restart(
-        UsType{request_buf.size() * 1'000'000 / io_.getBaudrate() + 1'000});
+    tx_timer_.restart(UsType{
+        request_buf.size() * 1'000'000 / io_.getBaudrate().value() + 1'000});
 
     state_ = State::WaitTx;
     response_ = std::nullopt;
@@ -279,9 +281,9 @@ class ModbusRtuMaster {
             io_.abortRead();
             state_ = State::Idle;
           } else {
-            rx_timer_.restart(
-                UsType{response_buf_.size() * 1'000'000 / io_.getBaudrate() +
-                       500 + timings_.response_delay.value()});
+            rx_timer_.restart(UsType{response_buf_.size() * 1'000'000 /
+                                         io_.getBaudrate().value() +
+                                     500 + timings_.response_delay.value()});
 
             state_ = State::WaitRx;
           }
@@ -316,7 +318,7 @@ class ModbusRtuMaster {
   }
 
  private:
-  m::ifc::IIO_Async& io_;
+  m::ifc::IIO_Async<BpsType>& io_;
   m::ifc::ITime<UsType>& time_;
   Timings timings_;
   m::Timer<UsType> tx_timer_;

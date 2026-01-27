@@ -5,7 +5,7 @@
  * it under the terms of the MIT License. See the LICENSE file in the
  * project root for more information.
  *
- * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
+ * Copyright (c) 2026 Max Melekesov <max.melekesov@gmail.com>
  */
 
 #ifndef CORO_SCHEDULER_HPP

@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef PERIODIC_TASK_H
-#define PERIODIC_TASK_H
+#ifndef PERIODIC_TASK_HPP
+#define PERIODIC_TASK_HPP
 
 #include <Ms.hpp>
 #include <Timer.hpp>
@@ -59,4 +59,4 @@ PeriodicTask(ifc::ITime<MsT>&, MsT, std::function<void()>&&)
 
 }  // namespace m
 
-#endif  // PERIODIC_TASK_H
+#endif  // PERIODIC_TASK_HPP

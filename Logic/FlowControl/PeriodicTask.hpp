@@ -17,12 +17,10 @@
 
 namespace m {
 
-template <m::ifc::CMs TimeUnit>
+template <m::ifc::CMs MsT>
 class PeriodicTask {
  public:
-  using type = TimeUnit;
-
-  PeriodicTask(ifc::ITime<type>& time, type period, std::function<void()>&& cb)
+  PeriodicTask(ifc::ITime<MsT>& time, MsT period, std::function<void()>&& cb)
       : timer_(time), period_(period), cb_(std::move(cb)) {}
 
   bool running() const { return timer_.running(); }
@@ -48,12 +46,16 @@ class PeriodicTask {
   }
 
  private:
-  Timer<type> timer_;
-  type period_;
+  Timer<MsT> timer_;
+  MsT period_;
   const std::function<void()> cb_;
 
   bool start_ = true;
 };
+
+template <m::ifc::CMs MsT>
+PeriodicTask(ifc::ITime<MsT>&, MsT, std::function<void()>&&)
+    -> PeriodicTask<MsT>;
 
 }  // namespace m
 

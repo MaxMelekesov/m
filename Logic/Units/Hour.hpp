@@ -21,6 +21,9 @@ struct Hour : public Unit<Hour<T>, T> {
   using Unit<Hour<T>, T>::Unit;
 };
 
+template <typename T>
+Hour(T) -> Hour<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CHour = requires { typename T::type; } &&

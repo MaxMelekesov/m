@@ -21,6 +21,9 @@ struct mA : public Unit<mA<T>, T> {
   using Unit<mA<T>, T>::Unit;
 };
 
+template <typename T>
+mA(T) -> mA<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CmA = requires { typename T::type; } &&

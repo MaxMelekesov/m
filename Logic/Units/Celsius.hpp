@@ -21,6 +21,9 @@ struct Celsius : public Unit<Celsius<T>, T> {
   using Unit<Celsius<T>, T>::Unit;
 };
 
+template <typename T>
+Celsius(T) -> Celsius<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CCelsius = requires { typename T::type; } &&

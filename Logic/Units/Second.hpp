@@ -21,6 +21,9 @@ struct Sec : public Unit<Sec<T>, T> {
   using Unit<Sec<T>, T>::Unit;
 };
 
+template <typename T>
+Sec(T) -> Sec<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CSec = requires { typename T::type; } &&

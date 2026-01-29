@@ -20,6 +20,9 @@ struct Bps : public Unit<Bps<T>, T> {
   using Unit<Bps<T>, T>::Unit;
 };
 
+template <typename T>
+Bps(T) -> Bps<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CBps = requires { typename T::type; } &&

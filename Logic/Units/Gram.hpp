@@ -21,6 +21,9 @@ struct Gram : public Unit<Gram<T>, T> {
   using Unit<Gram<T>, T>::Unit;
 };
 
+template <typename T>
+Gram(T) -> Gram<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CGram = requires { typename T::type; } &&

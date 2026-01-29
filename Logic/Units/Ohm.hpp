@@ -21,6 +21,9 @@ struct Ohm : public Unit<Ohm<T>, T> {
   using Unit<Ohm<T>, T>::Unit;
 };
 
+template <typename T>
+Ohm(T) -> Ohm<T>;
+
 namespace m::ifc {
 template <typename T>
 concept COhm = requires { typename T::type; } &&

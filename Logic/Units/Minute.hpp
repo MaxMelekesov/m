@@ -21,6 +21,9 @@ struct Min : public Unit<Min<T>, T> {
   using Unit<Min<T>, T>::Unit;
 };
 
+template <typename T>
+Min(T) -> Min<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CMin = requires { typename T::type; } &&

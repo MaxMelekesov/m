@@ -21,6 +21,9 @@ struct Kelvin : public Unit<Kelvin<T>, T> {
   using Unit<Kelvin<T>, T>::Unit;
 };
 
+template <typename T>
+Kelvin(T) -> Kelvin<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CKelvin = requires { typename T::type; } &&

@@ -21,6 +21,9 @@ struct Us : public Unit<Us<T>, T> {
   using Unit<Us<T>, T>::Unit;
 };
 
+template <typename T>
+Us(T) -> Us<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CUs = requires { typename T::type; } &&

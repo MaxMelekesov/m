@@ -21,6 +21,9 @@ struct mV : public Unit<mV<T>, T> {
   using Unit<mV<T>, T>::Unit;
 };
 
+template <typename T>
+mV(T) -> mV<T>;
+
 namespace m::ifc {
 template <typename T>
 concept CmV = requires { typename T::type; } &&

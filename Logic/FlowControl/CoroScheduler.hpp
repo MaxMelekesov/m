@@ -11,17 +11,73 @@
 #ifndef CORO_SCHEDULER_HPP
 #define CORO_SCHEDULER_HPP
 
-#include <atomic>
 #include <coroutine>
 #include <type_traits>
 #include <utility>
 
 namespace m {
-struct CoroSchedulerPromiseBase {
-  std::coroutine_handle<CoroSchedulerPromiseBase> next_ready_{nullptr};
+namespace detail {
+struct PromiseBase {
+  std::coroutine_handle<PromiseBase> next_ready_{nullptr};
   std::coroutine_handle<> continuation_{nullptr};
   bool scheduled_{false};
 };
+
+class LifoQueue {
+ public:
+  using Handle = std::coroutine_handle<PromiseBase>;
+
+  bool empty() const { return !head_; }
+
+  void push(Handle h) {
+    h.promise().next_ready_ = head_;
+    head_ = h;
+  }
+
+  Handle pop() {
+    auto head = head_;
+    if (head) {
+      head_ = head.promise().next_ready_;
+    }
+    return head;
+  }
+
+ private:
+  Handle head_{nullptr};
+};
+
+class FifoQueue {
+ public:
+  using Handle = std::coroutine_handle<PromiseBase>;
+
+  bool empty() const { return !head_; }
+
+  void push(Handle h) {
+    h.promise().next_ready_ = nullptr;
+    if (tail_) {
+      tail_.promise().next_ready_ = h;
+    } else {
+      head_ = h;
+    }
+    tail_ = h;
+  }
+
+  Handle pop() {
+    auto head = head_;
+    if (head) {
+      head_ = head.promise().next_ready_;
+      if (!head_) {
+        tail_ = nullptr;
+      }
+    }
+    return head;
+  }
+
+ private:
+  Handle head_{nullptr};
+  Handle tail_{nullptr};
+};
+}  // namespace detail
 
 class CoroScheduler {
  public:
@@ -29,7 +85,7 @@ class CoroScheduler {
     struct Awaiter {
       bool await_ready() { return false; }
       void await_suspend(std::coroutine_handle<> h) {
-        getInstance().enqueue(h);
+        getInstance().enqueueGlobal(h);
       }
       void await_resume() {}
     };
@@ -40,28 +96,32 @@ class CoroScheduler {
   [[nodiscard]] static auto until(Predicate&& pred) {
     struct Awaiter {
       std::decay_t<Predicate> pred_;
-      bool await_ready() { return !pred_(); }
+      bool await_ready() { return pred_(); }
       void await_suspend(std::coroutine_handle<> h) {
-        getInstance().enqueue(h);
+        getInstance().enqueueGlobal(h);
       }
       void await_resume() {}
     };
     return Awaiter{std::forward<Predicate>(pred)};
   }
 
-  static void resumeFromIsr(std::coroutine_handle<> h) {
-    if (h) getInstance().enqueue(h);
-  }
-
   void handle() {
-    auto head = ready_list_.exchange(nullptr, std::memory_order_acquire);
-    while (head) {
-      auto next = head.promise().next_ready_;
+    while (!lifo_queue_.empty() || !fifo_queue_.empty()) {
+      std::coroutine_handle<detail::PromiseBase> head{nullptr};
+      const bool lifo_empty = lifo_queue_.empty();
+      const bool fifo_empty = fifo_queue_.empty();
+      if (!lifo_empty && !fifo_empty) {
+        prefer_lifo_ = !prefer_lifo_;
+      }
+      if (prefer_lifo_) {
+        head = lifo_empty ? fifo_queue_.pop() : lifo_queue_.pop();
+      } else {
+        head = fifo_empty ? lifo_queue_.pop() : fifo_queue_.pop();
+      }
       head.promise().scheduled_ = false;
       if (!head.done()) {
         head.resume();
       }
-      head = next;
     }
   }
 
@@ -70,23 +130,30 @@ class CoroScheduler {
     return sched;
   }
 
-  void enqueue(std::coroutine_handle<> h) {
-    auto base = std::coroutine_handle<CoroSchedulerPromiseBase>::from_address(
-        h.address());
+  void enqueueGlobal(std::coroutine_handle<> h) {
+    auto base =
+        std::coroutine_handle<detail::PromiseBase>::from_address(h.address());
     if (base.promise().scheduled_) {
       return;
     }
     base.promise().scheduled_ = true;
-    auto head = ready_list_.load(std::memory_order_relaxed);
-    do {
-      base.promise().next_ready_ = head;
-    } while (!ready_list_.compare_exchange_weak(
-        head, base, std::memory_order_release, std::memory_order_relaxed));
+    fifo_queue_.push(base);
+  }
+
+  void enqueueLocal(std::coroutine_handle<> h) {
+    auto base =
+        std::coroutine_handle<detail::PromiseBase>::from_address(h.address());
+    if (base.promise().scheduled_) {
+      return;
+    }
+    base.promise().scheduled_ = true;
+    lifo_queue_.push(base);
   }
 
  private:
-  std::atomic<std::coroutine_handle<CoroSchedulerPromiseBase>> ready_list_{
-      nullptr};
+  detail::LifoQueue lifo_queue_;
+  detail::FifoQueue fifo_queue_;
+  bool prefer_lifo_{true};
 
   CoroScheduler() = default;
 };
@@ -94,7 +161,7 @@ class CoroScheduler {
 template <typename T>
 class Task {
  public:
-  struct promise_type : CoroSchedulerPromiseBase {
+  struct promise_type : detail::PromiseBase {
     T result_{};
 
     Task get_return_object() {
@@ -107,7 +174,8 @@ class Task {
         bool await_ready() noexcept { return false; }
         void await_suspend(std::coroutine_handle<promise_type> h) noexcept {
           if (h.promise().continuation_) {
-            CoroScheduler::getInstance().enqueue(h.promise().continuation_);
+            CoroScheduler::getInstance().enqueueLocal(
+                h.promise().continuation_);
           }
         }
         void await_resume() noexcept {}
@@ -137,7 +205,7 @@ class Task {
           return false;
         }
         coro.promise().continuation_ = caller;
-        CoroScheduler::getInstance().enqueue(coro);
+        CoroScheduler::getInstance().enqueueLocal(coro);
         return true;
       }
 
@@ -153,7 +221,7 @@ class Task {
 template <>
 class Task<void> {
  public:
-  struct promise_type : CoroSchedulerPromiseBase {
+  struct promise_type : detail::PromiseBase {
     Task get_return_object() {
       return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
     }
@@ -166,7 +234,8 @@ class Task<void> {
 
         void await_suspend(std::coroutine_handle<promise_type> h) noexcept {
           if (h.promise().continuation_) {
-            CoroScheduler::getInstance().enqueue(h.promise().continuation_);
+            CoroScheduler::getInstance().enqueueLocal(
+                h.promise().continuation_);
           }
         }
 
@@ -197,7 +266,7 @@ class Task<void> {
           return false;
         }
         coro.promise().continuation_ = caller;
-        CoroScheduler::getInstance().enqueue(coro);
+        CoroScheduler::getInstance().enqueueLocal(coro);
         return true;
       }
 

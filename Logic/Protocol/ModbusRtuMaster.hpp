@@ -8,31 +8,29 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef MODBUS_RTU_MASTER_H
-#define MODBUS_RTU_MASTER_H
+#ifndef MODBUS_RTU_MASTER_HPP
+#define MODBUS_RTU_MASTER_HPP
 
 #include <IIO_Async.hpp>
 #include <ITime.hpp>
 #include <TSerDes.hpp>
 #include <Timer.hpp>
-#include <Us.hpp>
 #include <cstdint>
 #include <optional>
 
-#include "Bps.hpp"
-
 namespace m {
 
-template <m::ifc::CUs UsType, m::ifc::CBps BpsType>
+template <m::ifc::CIO_Async IoT, m::ifc::CTimeUs TimeUsT>
 class ModbusRtuMaster {
  public:
+  using UsType = decltype(std::declval<TimeUsT>().getTick());
+
   struct Timings {
     UsType rx_delay;
     UsType response_delay;
   };
 
-  ModbusRtuMaster(m::ifc::IIO_Async<BpsType>& io, m::ifc::ITime<UsType>& time,
-                  Timings timings)
+  ModbusRtuMaster(IoT& io, TimeUsT& time, Timings timings)
       : io_(io),
         time_(time),
         timings_(timings),
@@ -318,8 +316,8 @@ class ModbusRtuMaster {
   }
 
  private:
-  m::ifc::IIO_Async<BpsType>& io_;
-  m::ifc::ITime<UsType>& time_;
+  IoT& io_;
+  TimeUsT& time_;
   Timings timings_;
   m::Timer<UsType> tx_timer_;
   m::Timer<UsType> start_rx_timer_;
@@ -352,6 +350,42 @@ class ModbusRtuMaster {
     return crc;
   }
 };
+
+template <typename T>
+concept CModbusRtuMaster = requires(T modbus) {
+  typename T::Unit;
+  typename T::Error;
+  typename T::UsType;
+
+  requires requires(typename T::Unit unit, std::span<uint8_t> buf,
+                    std::span<uint8_t> data) {
+    { modbus.readMhrResponseSize(unit) } -> std::same_as<uint16_t>;
+    { modbus.readMhr(unit, buf) } -> std::same_as<bool>;
+
+    { modbus.writeShrResponseSize() } -> std::same_as<uint32_t>;
+    { modbus.writeShr(unit, buf) } -> std::same_as<bool>;
+
+    { modbus.writeMhrRequestSize(unit) } -> std::same_as<uint32_t>;
+    { modbus.writeMhrResponseSize(unit) } -> std::same_as<uint32_t>;
+    { modbus.writeMhr(unit, data, buf, buf) } -> std::same_as<bool>;
+
+    { modbus.getResponse() } -> std::same_as<std::optional<std::span<uint8_t>>>;
+    {
+      modbus.checkResponse(buf)
+    } -> std::same_as<std::optional<typename T::Error>>;
+    { modbus.changeResponseEndian(buf) } -> std::same_as<bool>;
+
+    { modbus.handle() } -> std::same_as<void>;
+  };
+};
+
+static_assert(CModbusRtuMaster<ModbusRtuMaster<ifc::IIO_Async<Bps<uint32_t>>,
+                                               ifc::ITime<Us<uint32_t>>>>,
+              "ModbusRtuMaster must satisfy CModbusRtuMaster concept");
+
+template <typename IoT, typename TimeUsT>
+ModbusRtuMaster(IoT&, TimeUsT&, typename ModbusRtuMaster<IoT, TimeUsT>::Timings)
+    -> ModbusRtuMaster<IoT, TimeUsT>;
 }  // namespace m
 
-#endif  // MODBUS_RTU_MASTER_H
+#endif  // MODBUS_RTU_MASTER_HPP

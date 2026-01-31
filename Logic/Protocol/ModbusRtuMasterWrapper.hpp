@@ -8,21 +8,20 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef MODBUS_RTU_MASTER_WRAPPER_H
-#define MODBUS_RTU_MASTER_WRAPPER_H
+#ifndef MODBUS_RTU_MASTER_WRAPPER_HPP
+#define MODBUS_RTU_MASTER_WRAPPER_HPP
 
 #include <ModbusRtuMaster.hpp>
 
 namespace m {
-template <m::ifc::CUs UsType, m::ifc::CBps BpsType>
+template <CModbusRtuMaster Mdbs>
 class ModbusRtuMasterWrapper {
  private:
-  using Unit = m::ModbusRtuMaster<UsType, BpsType>::Unit;
-  using Error = m::ModbusRtuMaster<UsType, BpsType>::Error;
+  using Unit = typename Mdbs::Unit;
+  using Error = typename Mdbs::Error;
 
  public:
-  ModbusRtuMasterWrapper(m::ModbusRtuMaster<UsType, BpsType>& modbus)
-      : modbus_(modbus) {}
+  ModbusRtuMasterWrapper(Mdbs& modbus) : modbus_(modbus) {}
 
   bool readMhr(uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
                std::span<uint8_t> data) {
@@ -98,11 +97,27 @@ class ModbusRtuMasterWrapper {
   }
 
  private:
-  m::ModbusRtuMaster<UsType, BpsType>& modbus_;
+  Mdbs& modbus_;
 
   std::array<uint8_t, 256> response_buf_;
   std::array<uint8_t, 256> request_buf_;
 };
+
+template <typename T>
+concept CModbusRtuMasterWrapper =
+    requires(T wrapper, uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
+             uint16_t value, std::span<uint8_t> data) {
+      { wrapper.readMhr(addr, reg_addr, regs_num, data) } -> std::same_as<bool>;
+      { wrapper.writeShr(addr, reg_addr, value) } -> std::same_as<bool>;
+      {
+        wrapper.writeMhr(addr, reg_addr, regs_num, data)
+      } -> std::same_as<bool>;
+    };
+
+static_assert(
+    CModbusRtuMasterWrapper<ModbusRtuMasterWrapper<ModbusRtuMaster<
+        ifc::IIO_Async<Bps<uint32_t>>, ifc::ITime<Us<uint32_t>>>>>,
+    "ModbusRtuMasterWrapper must satisfy CModbusRtuMasterWrapper concept");
 }  // namespace m
 
-#endif  // MODBUS_RTU_MASTER_WRAPPER_H
+#endif  // MODBUS_RTU_MASTER_WRAPPER_HPP

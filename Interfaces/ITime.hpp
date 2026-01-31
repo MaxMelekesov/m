@@ -38,8 +38,21 @@ concept CTime = requires(T time) {
   { time.getDiff(time.getTick()) };
 };
 
-static_assert(CTime<ITime<Ms<uint32_t>>>, "ITime must satisfy CTime concept");
+template <typename T>
+concept CTimeMs = CTime<T> && requires(T time) {
+  { time.getTick() } -> CMs;
+};
 
+template <typename T>
+concept CTimeUs = CTime<T> && requires(T time) {
+  { time.getTick() } -> CUs;
+};
+
+static_assert(CTime<ITime<Ms<uint32_t>>>, "ITime must satisfy CTime concept");
+static_assert(CTimeMs<ITime<Ms<uint32_t>>>,
+              "ITime<Ms> must satisfy CTimeMs concept");
+static_assert(CTimeUs<ITime<Us<uint32_t>>>,
+              "ITime<Us> must satisfy CTimeUs concept");
 }  // namespace m::ifc
 
 #endif  // ITIME_HPP

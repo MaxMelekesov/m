@@ -13,6 +13,7 @@
 
 #include <CoroMutex.hpp>
 #include <CoroScheduler.hpp>
+#include <CoroYield.hpp>
 #include <ModbusRtuMaster.hpp>
 
 namespace m {
@@ -38,7 +39,7 @@ class ModbusRtuMasterWrapper {
     while (!resp) {
       modbus_.handle();
       resp = modbus_.getResponse();
-      co_await CoroScheduler::yield();
+      co_await m::coroYield();
     }
 
     if (auto err = modbus_.checkResponse(resp.value()); err != Error::None) {
@@ -67,7 +68,7 @@ class ModbusRtuMasterWrapper {
     while (!resp) {
       modbus_.handle();
       resp = modbus_.getResponse();
-      co_await CoroScheduler::yield();
+      co_await m::coroYield();
     }
 
     if (auto err = modbus_.checkResponse(resp.value()); err != Error::None) {
@@ -95,7 +96,7 @@ class ModbusRtuMasterWrapper {
     while (!resp) {
       modbus_.handle();
       resp = modbus_.getResponse();
-      co_await CoroScheduler::yield();
+      co_await m::coroYield();
     }
 
     if (auto err = modbus_.checkResponse(resp.value()); err != Error::None) {

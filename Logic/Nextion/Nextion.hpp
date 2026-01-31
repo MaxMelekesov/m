@@ -12,6 +12,7 @@
 #define NEXTION_HPP
 
 #include <CoroScheduler.hpp>
+#include <CoroUntil.hpp>
 #include <Fsm_v4.hpp>
 #include <IDataLink.hpp>
 #include <NextionDataLink.hpp>
@@ -22,6 +23,8 @@
 #include <span>
 #include <string_view>
 #include <variant>
+
+#include "DebugLogger.hpp"
 
 namespace m::nxt {
 
@@ -157,7 +160,7 @@ class Nextion
   auto coroRun() -> Task<void> {
     while (1) {
       checkEvents();
-      co_await CoroScheduler::yield();
+      co_await m::coroYield();
     }
   }
 
@@ -342,13 +345,9 @@ class Nextion
       co_return false;
     }
 
-    while (1) {
-      if (auto value = io_.transmitDone(); value) {
-        co_return value.value();
-      }
-      co_await m::CoroScheduler::yield();
-    }
-    co_return false;
+    co_await m::coroUntil([this] { return io_.transmitDone(); });
+    auto value = io_.transmitDone();
+    co_return value.value();
   }
 
   // #############################

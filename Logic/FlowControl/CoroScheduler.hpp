@@ -81,30 +81,6 @@ class FifoQueue {
 
 class CoroScheduler {
  public:
-  [[nodiscard]] static auto yield() {
-    struct Awaiter {
-      bool await_ready() { return false; }
-      void await_suspend(std::coroutine_handle<> h) {
-        getInstance().enqueueGlobal(h);
-      }
-      void await_resume() {}
-    };
-    return Awaiter{};
-  }
-
-  template <typename Predicate>
-  [[nodiscard]] static auto until(Predicate&& pred) {
-    struct Awaiter {
-      std::decay_t<Predicate> pred_;
-      bool await_ready() { return pred_(); }
-      void await_suspend(std::coroutine_handle<> h) {
-        getInstance().enqueueGlobal(h);
-      }
-      void await_resume() {}
-    };
-    return Awaiter{std::forward<Predicate>(pred)};
-  }
-
   void handle() {
     while (!lifo_queue_.empty() || !fifo_queue_.empty()) {
       std::coroutine_handle<detail::PromiseBase> head{nullptr};

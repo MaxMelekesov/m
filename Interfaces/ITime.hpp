@@ -11,16 +11,19 @@
 #ifndef ITIME_HPP
 #define ITIME_HPP
 
+#include <Ms.hpp>
+#include <Us.hpp>
 #include <concepts>
 #include <cstdint>
 
 namespace m::ifc {
 
-template <typename T>
+template <typename UnitT>
+concept CTimeUnit = CUs<UnitT> || CMs<UnitT>;
+
+template <CTimeUnit UnitT>
 class ITime {
  public:
-  using UnitT = T;
-
   virtual ~ITime() {}
 
   virtual void delay(UnitT value) = 0;
@@ -28,15 +31,15 @@ class ITime {
   virtual UnitT getDiff(UnitT value) = 0;
 };
 
-template <typename T, typename UnitT>
-concept CTime = requires(T t, UnitT value) {
-  { t.delay(value) } -> std::same_as<void>;
-  { t.getTick() } -> std::same_as<UnitT>;
-  { t.getDiff(value) } -> std::same_as<UnitT>;
+template <typename T>
+concept CTime = requires(T time) {
+  { time.delay(time.getTick()) } -> std::same_as<void>;
+  { time.getTick() };
+  { time.getDiff(time.getTick()) };
 };
 
-static_assert(CTime<ITime<uint32_t>, uint32_t>,
-              "ITime does not satisfy CTime concept");
+static_assert(CTime<ITime<Ms<uint32_t>>>, "ITime must satisfy CTime concept");
+
 }  // namespace m::ifc
 
 #endif  // ITIME_HPP

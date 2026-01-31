@@ -12,7 +12,6 @@
 #define CORO_SCHEDULER_HPP
 
 #include <coroutine>
-#include <type_traits>
 #include <utility>
 
 namespace m {
@@ -21,29 +20,8 @@ struct PromiseBase {
   std::coroutine_handle<PromiseBase> next_ready_{nullptr};
   std::coroutine_handle<> continuation_{nullptr};
   bool scheduled_{false};
-};
-
-class LifoQueue {
- public:
-  using Handle = std::coroutine_handle<PromiseBase>;
-
-  bool empty() const { return !head_; }
-
-  void push(Handle h) {
-    h.promise().next_ready_ = head_;
-    head_ = h;
-  }
-
-  Handle pop() {
-    auto head = head_;
-    if (head) {
-      head_ = head.promise().next_ready_;
-    }
-    return head;
-  }
-
- private:
-  Handle head_{nullptr};
+  bool detached_{false};            // Task отцепился, scheduler владеет
+  bool waiting_for_nested_{false};  // Ожидает завершения вложенной корутины
 };
 
 class FifoQueue {
@@ -82,21 +60,16 @@ class FifoQueue {
 class CoroScheduler {
  public:
   void handle() {
-    while (!lifo_queue_.empty() || !fifo_queue_.empty()) {
-      std::coroutine_handle<detail::PromiseBase> head{nullptr};
-      const bool lifo_empty = lifo_queue_.empty();
-      const bool fifo_empty = fifo_queue_.empty();
-      if (!lifo_empty && !fifo_empty) {
-        prefer_lifo_ = !prefer_lifo_;
-      }
-      if (prefer_lifo_) {
-        head = lifo_empty ? fifo_queue_.pop() : lifo_queue_.pop();
-      } else {
-        head = fifo_empty ? lifo_queue_.pop() : fifo_queue_.pop();
-      }
-      head.promise().scheduled_ = false;
-      if (!head.done()) {
-        head.resume();
+    while (!fifo_queue_.empty()) {
+      auto head = fifo_queue_.pop();
+      if (head) {
+        head.promise().scheduled_ = false;
+        if (!head.done()) {
+          head.resume();
+        }
+        if (head.promise().detached_ && head.done()) {
+          head.destroy();
+        }
       }
     }
   }
@@ -107,29 +80,19 @@ class CoroScheduler {
   }
 
   void enqueueGlobal(std::coroutine_handle<> h) {
+    if (!h) return;
     auto base =
         std::coroutine_handle<detail::PromiseBase>::from_address(h.address());
-    if (base.promise().scheduled_) {
+    // Не планируем, если корутина уже в очереди или ожидает вложенную
+    if (base.promise().scheduled_ || base.promise().waiting_for_nested_) {
       return;
     }
     base.promise().scheduled_ = true;
     fifo_queue_.push(base);
   }
 
-  void enqueueLocal(std::coroutine_handle<> h) {
-    auto base =
-        std::coroutine_handle<detail::PromiseBase>::from_address(h.address());
-    if (base.promise().scheduled_) {
-      return;
-    }
-    base.promise().scheduled_ = true;
-    lifo_queue_.push(base);
-  }
-
  private:
-  detail::LifoQueue lifo_queue_;
   detail::FifoQueue fifo_queue_;
-  bool prefer_lifo_{true};
 
   CoroScheduler() = default;
 };
@@ -150,8 +113,14 @@ class Task {
         bool await_ready() noexcept { return false; }
         void await_suspend(std::coroutine_handle<promise_type> h) noexcept {
           if (h.promise().continuation_) {
-            CoroScheduler::getInstance().enqueueLocal(
-                h.promise().continuation_);
+            auto cont = h.promise().continuation_;
+            h.promise().continuation_ = nullptr;
+            // Снимаем флаг ожидания у родительской корутины
+            auto cont_base =
+                std::coroutine_handle<detail::PromiseBase>::from_address(
+                    cont.address());
+            cont_base.promise().waiting_for_nested_ = false;
+            CoroScheduler::getInstance().enqueueGlobal(cont);
           }
         }
         void await_resume() noexcept {}
@@ -159,13 +128,22 @@ class Task {
       return FinalAwaiter{};
     }
 
-    void return_value(T value) { result_ = value; }
+    void return_value(T value) { result_ = std::move(value); }
     void unhandled_exception() {}
   };
 
   explicit Task(std::coroutine_handle<promise_type> h) : coro_(h) {}
   ~Task() {
-    if (coro_) coro_.destroy();
+    if (coro_) {
+      if (!coro_.done()) {
+        // Не завершена - отцепляем, scheduler доделает и уничтожит
+        coro_.promise().detached_ = true;
+      } else if (!coro_.promise().detached_) {
+        // Завершена и НЕ detached - уничтожаем
+        coro_.destroy();
+      }
+      // Если done() && detached_ - scheduler уже уничтожил или уничтожит
+    }
   }
   Task(Task&& other) noexcept : coro_(std::exchange(other.coro_, nullptr)) {}
   Task& operator=(Task&&) = delete;
@@ -174,20 +152,31 @@ class Task {
     struct Awaiter {
       std::coroutine_handle<promise_type> coro;
 
-      bool await_ready() { return !coro; }
+      bool await_ready() { return !coro || coro.done(); }
 
       bool await_suspend(std::coroutine_handle<> caller) {
         if (coro.done()) {
           return false;
         }
+        // Устанавливаем флаг ожидания у вызывающей корутины
+        auto caller_base =
+            std::coroutine_handle<detail::PromiseBase>::from_address(
+                caller.address());
+        caller_base.promise().waiting_for_nested_ = true;
+        // ВСЕГДА устанавливаем continuation, даже если уже scheduled
         coro.promise().continuation_ = caller;
-        CoroScheduler::getInstance().enqueueLocal(coro);
+        // Enqueue только если еще не в очереди
+        if (!coro.promise().scheduled_) {
+          CoroScheduler::getInstance().enqueueGlobal(coro);
+        }
         return true;
       }
 
-      T await_resume() { return coro.promise().result_; }
+      T await_resume() { return std::move(coro.promise().result_); }
+
+      ~Awaiter() = default;
     };
-    return Awaiter{std::exchange(coro_, nullptr)};
+    return Awaiter{coro_};
   }
 
  private:
@@ -210,8 +199,14 @@ class Task<void> {
 
         void await_suspend(std::coroutine_handle<promise_type> h) noexcept {
           if (h.promise().continuation_) {
-            CoroScheduler::getInstance().enqueueLocal(
-                h.promise().continuation_);
+            auto cont = h.promise().continuation_;
+            h.promise().continuation_ = nullptr;
+            // Снимаем флаг ожидания у родительской корутины
+            auto cont_base =
+                std::coroutine_handle<detail::PromiseBase>::from_address(
+                    cont.address());
+            cont_base.promise().waiting_for_nested_ = false;
+            CoroScheduler::getInstance().enqueueGlobal(cont);
           }
         }
 
@@ -226,7 +221,16 @@ class Task<void> {
 
   explicit Task(std::coroutine_handle<promise_type> h) : coro_(h) {}
   ~Task() {
-    if (coro_) coro_.destroy();
+    if (coro_) {
+      if (!coro_.done()) {
+        // Не завершена - отцепляем, scheduler доделает и уничтожит
+        coro_.promise().detached_ = true;
+      } else if (!coro_.promise().detached_) {
+        // Завершена и НЕ detached - уничтожаем
+        coro_.destroy();
+      }
+      // Если done() && detached_ - scheduler уже уничтожил или уничтожит
+    }
   }
   Task(Task&& other) noexcept : coro_(std::exchange(other.coro_, nullptr)) {}
   Task& operator=(Task&&) = delete;
@@ -235,20 +239,31 @@ class Task<void> {
     struct Awaiter {
       std::coroutine_handle<promise_type> coro;
 
-      bool await_ready() { return !coro; }
+      bool await_ready() { return !coro || coro.done(); }
 
       bool await_suspend(std::coroutine_handle<> caller) {
         if (coro.done()) {
           return false;
         }
+        // Устанавливаем флаг ожидания у вызывающей корутины
+        auto caller_base =
+            std::coroutine_handle<detail::PromiseBase>::from_address(
+                caller.address());
+        caller_base.promise().waiting_for_nested_ = true;
+        // ВСЕГДА устанавливаем continuation, даже если уже scheduled
         coro.promise().continuation_ = caller;
-        CoroScheduler::getInstance().enqueueLocal(coro);
+        // Enqueue только если еще не в очереди
+        if (!coro.promise().scheduled_) {
+          CoroScheduler::getInstance().enqueueGlobal(coro);
+        }
         return true;
       }
 
       void await_resume() {}
+
+      ~Awaiter() = default;
     };
-    return Awaiter{std::exchange(coro_, nullptr)};
+    return Awaiter{coro_};
   }
 
  private:

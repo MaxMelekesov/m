@@ -12,6 +12,7 @@
 #define CORO_MUTEX_HPP
 
 #include <CoroScheduler.hpp>
+#include <CoroYield.hpp>
 
 namespace m {
 
@@ -19,16 +20,13 @@ class CoroMutex {
  public:
   class Guard {
    public:
+    Guard() : mutex_(nullptr) {}
     explicit Guard(CoroMutex& mutex) : mutex_(&mutex) {}
-    ~Guard() {
-      if (mutex_) {
-        mutex_->locked_ = false;
-      }
-    }
+    ~Guard() { unlock(); }
 
     void unlock() {
       if (mutex_) {
-        mutex_->locked_ = false;
+        mutex_->unlockInternal();
         mutex_ = nullptr;
       }
     }
@@ -36,6 +34,14 @@ class CoroMutex {
     Guard(const Guard&) = delete;
     Guard& operator=(const Guard&) = delete;
     Guard(Guard&& other) : mutex_(other.mutex_) { other.mutex_ = nullptr; }
+    Guard& operator=(Guard&& other) noexcept {
+      if (this != &other) {
+        unlock();
+        mutex_ = other.mutex_;
+        other.mutex_ = nullptr;
+      }
+      return *this;
+    }
 
    private:
     CoroMutex* mutex_;
@@ -43,29 +49,22 @@ class CoroMutex {
 
   CoroMutex() = default;
 
-  [[nodiscard]] auto lock() {
-    struct Awaiter {
-      CoroMutex& m;
-
-      bool await_ready() {
-        if (!m.locked_) {
-          m.locked_ = true;
-          return true;
-        }
-        return false;
-      }
-
-      void await_suspend(std::coroutine_handle<> h) {
-        CoroScheduler::getInstance().enqueueGlobal(h);
-      }
-
-      Guard await_resume() { return Guard{m}; }
-    };
-
-    return Awaiter{*this};
+  [[nodiscard]] auto lock() -> Task<Guard> {
+    while (locked_) {
+      co_await coroYield();
+    }
+    locked_ = true;
+    co_return Guard{*this};
   }
 
  private:
+  void unlockInternal() {
+    if (!locked_) {
+      return;
+    }
+    locked_ = false;
+  }
+
   bool locked_ = false;
 };
 

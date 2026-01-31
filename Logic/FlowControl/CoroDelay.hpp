@@ -22,7 +22,8 @@ inline auto coroDelay(TimeT& time,
                       decltype(std::declval<TimeT&>().getTick()) delay)
     -> m::Task<void> {
   auto start = time.getTick();
-  co_await m::coroUntil([&] { return time.getDiff(start) >= delay; });
+  co_await m::coroUntil(
+      [&] { return time.getDiff(start) >= delay; });
 }
 
 }  // namespace m

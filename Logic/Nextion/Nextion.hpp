@@ -11,6 +11,7 @@
 #ifndef NEXTION_HPP
 #define NEXTION_HPP
 
+#include <CoroScheduler.hpp>
 #include <Fsm_v4.hpp>
 #include <IDataLink.hpp>
 #include <NextionDataLink.hpp>
@@ -121,8 +122,10 @@ class Button : public Component {
 template <typename T>
 concept CNextion = requires(T nxt, const Component& component, uint32_t id,
                             std::string_view text) {
-  { nxt.setPicture(component, id) } -> std::same_as<bool>;
-  { nxt.setText(component, text) } -> std::same_as<bool>;
+  { nxt.setPicture(component, id) } -> std::same_as<m::Task<bool>>;
+  { nxt.setText(component, text) } -> std::same_as<m::Task<bool>>;
+  { nxt.setVisibility(component, true) } -> std::same_as<m::Task<bool>>;
+  { nxt.setNumber(component, 0) } -> std::same_as<m::Task<bool>>;
 };
 
 template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents = 32,
@@ -151,7 +154,12 @@ class Nextion
  public:
   explicit Nextion(IoType& io) : io_(io), components_{}, component_count_{0} {}
 
-  void handle() { checkEvents(); }
+  auto coroRun() -> Task<void> {
+    while (1) {
+      checkEvents();
+      co_await CoroScheduler::yield();
+    }
+  }
 
   void start() { start_ = true; }
   void stop() { start_ = false; }
@@ -165,64 +173,65 @@ class Nextion
     return true;
   }
 
-  bool setPicture(const Component& component, uint32_t id) {
+  auto setPicture(const Component& component, uint32_t id) -> m::Task<bool> {
     auto length =
         snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
                  "%.*s.pic=%lu\xFF\xFF\xFF", component.getName().size(),
                  component.getName().data(), id);
 
     if (length <= 0) {
-      return false;
+      co_return false;
     }
 
     std::span<const uint8_t> span(tx_buf_);
-    bool res = sendCommandData(span.first(length));
-    return res;
+    bool res = co_await sendCommandData(span.first(length));
+    co_return res;
   }
 
-  bool setText(const Component& component, std::string_view text) {
+  auto setText(const Component& component, std::string_view text)
+      -> m::Task<bool> {
     auto length =
         snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
                  "%.*s.txt=\"%.*s\"\xFF\xFF\xFF", component.getName().size(),
                  component.getName().data(), text.size(), text.data());
 
     if (length <= 0) {
-      return false;
+      co_return false;
     }
 
     std::span<const uint8_t> span(tx_buf_);
-    bool res = sendCommandData(span.first(length));
-    return res;
+    bool res = co_await sendCommandData(span.first(length));
+    co_return res;
   }
 
-  bool setVisibility(const Component& component, bool value) {
+  auto setVisibility(const Component& component, bool value) -> m::Task<bool> {
     auto length =
         snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
                  "vis %.*s,%c\xFF\xFF\xFF", component.getName().size(),
                  component.getName().data(), value ? '1' : '0');
 
     if (length <= 0) {
-      return false;
+      co_return false;
     }
 
     std::span<const uint8_t> span(tx_buf_);
-    bool res = sendCommandData(span.first(length));
-    return res;
+    bool res = co_await sendCommandData(span.first(length));
+    co_return res;
   }
 
-  bool setNumber(const Component& component, int32_t number) {
+  auto setNumber(const Component& component, int32_t number) -> m::Task<bool> {
     auto length =
         snprintf(reinterpret_cast<char*>(tx_buf_.data()), tx_buf_.size(),
                  "%.*s.val=%ld\xFF\xFF\xFF", component.getName().size(),
                  component.getName().data(), number);
 
     if (length <= 0) {
-      return false;
+      co_return false;
     }
 
     std::span<const uint8_t> span(tx_buf_);
-    bool res = sendCommandData(span.first(length));
-    return res;
+    bool res = co_await sendCommandData(span.first(length));
+    co_return res;
   }
 
  private:
@@ -232,7 +241,7 @@ class Nextion
 
   bool start_ = false;
 
-  std::array<uint8_t, BufferSize> rx_buf_;
+  alignas(4) std::array<uint8_t, BufferSize> rx_buf_;
   std::array<uint8_t, BufferSize> rx_buf_copy_;
   std::span<uint8_t> rx_buf_view_;
   std::array<uint8_t, BufferSize> tx_buf_;
@@ -328,18 +337,18 @@ class Nextion
     }
   }
 
-  bool sendCommandData(std::span<const uint8_t> data) {
+  auto sendCommandData(std::span<const uint8_t> data) -> m::Task<bool> {
     if (!io_.startTransmit(data)) {
-      return false;
+      co_return false;
     }
 
     while (1) {
       if (auto value = io_.transmitDone(); value) {
-        return value.value();
+        co_return value.value();
       }
+      co_await m::CoroScheduler::yield();
     }
-
-    return false;
+    co_return false;
   }
 
   // #############################

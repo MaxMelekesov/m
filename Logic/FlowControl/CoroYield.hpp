@@ -19,7 +19,7 @@ namespace m {
   struct Awaiter {
     bool await_ready() { return false; }
     void await_suspend(std::coroutine_handle<> h) {
-      CoroScheduler::getInstance().enqueueGlobal(h);
+      CoroScheduler::getInstance().enqueue(h);
     }
     void await_resume() {}
   };

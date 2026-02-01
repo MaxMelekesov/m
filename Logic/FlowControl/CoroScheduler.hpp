@@ -20,8 +20,8 @@ struct PromiseBase {
   std::coroutine_handle<PromiseBase> next_ready_{nullptr};
   std::coroutine_handle<> continuation_{nullptr};
   bool scheduled_{false};
-  bool detached_{false};            // Task отцепился, scheduler владеет
-  bool waiting_for_nested_{false};  // Ожидает завершения вложенной корутины
+  bool detached_{false};
+  bool waiting_for_nested_{false};
 };
 
 class FifoQueue {
@@ -79,11 +79,11 @@ class CoroScheduler {
     return sched;
   }
 
-  void enqueueGlobal(std::coroutine_handle<> h) {
+  void enqueue(std::coroutine_handle<> h) {
     if (!h) return;
     auto base =
         std::coroutine_handle<detail::PromiseBase>::from_address(h.address());
-    // Не планируем, если корутина уже в очереди или ожидает вложенную
+
     if (base.promise().scheduled_ || base.promise().waiting_for_nested_) {
       return;
     }
@@ -115,12 +115,12 @@ class Task {
           if (h.promise().continuation_) {
             auto cont = h.promise().continuation_;
             h.promise().continuation_ = nullptr;
-            // Снимаем флаг ожидания у родительской корутины
+
             auto cont_base =
                 std::coroutine_handle<detail::PromiseBase>::from_address(
                     cont.address());
             cont_base.promise().waiting_for_nested_ = false;
-            CoroScheduler::getInstance().enqueueGlobal(cont);
+            CoroScheduler::getInstance().enqueue(cont);
           }
         }
         void await_resume() noexcept {}
@@ -136,13 +136,10 @@ class Task {
   ~Task() {
     if (coro_) {
       if (!coro_.done()) {
-        // Не завершена - отцепляем, scheduler доделает и уничтожит
         coro_.promise().detached_ = true;
       } else if (!coro_.promise().detached_) {
-        // Завершена и НЕ detached - уничтожаем
         coro_.destroy();
       }
-      // Если done() && detached_ - scheduler уже уничтожил или уничтожит
     }
   }
   Task(Task&& other) noexcept : coro_(std::exchange(other.coro_, nullptr)) {}
@@ -158,16 +155,13 @@ class Task {
         if (coro.done()) {
           return false;
         }
-        // Устанавливаем флаг ожидания у вызывающей корутины
         auto caller_base =
             std::coroutine_handle<detail::PromiseBase>::from_address(
                 caller.address());
         caller_base.promise().waiting_for_nested_ = true;
-        // ВСЕГДА устанавливаем continuation, даже если уже scheduled
         coro.promise().continuation_ = caller;
-        // Enqueue только если еще не в очереди
         if (!coro.promise().scheduled_) {
-          CoroScheduler::getInstance().enqueueGlobal(coro);
+          CoroScheduler::getInstance().enqueue(coro);
         }
         return true;
       }
@@ -201,12 +195,11 @@ class Task<void> {
           if (h.promise().continuation_) {
             auto cont = h.promise().continuation_;
             h.promise().continuation_ = nullptr;
-            // Снимаем флаг ожидания у родительской корутины
             auto cont_base =
                 std::coroutine_handle<detail::PromiseBase>::from_address(
                     cont.address());
             cont_base.promise().waiting_for_nested_ = false;
-            CoroScheduler::getInstance().enqueueGlobal(cont);
+            CoroScheduler::getInstance().enqueue(cont);
           }
         }
 
@@ -223,13 +216,10 @@ class Task<void> {
   ~Task() {
     if (coro_) {
       if (!coro_.done()) {
-        // Не завершена - отцепляем, scheduler доделает и уничтожит
         coro_.promise().detached_ = true;
       } else if (!coro_.promise().detached_) {
-        // Завершена и НЕ detached - уничтожаем
         coro_.destroy();
       }
-      // Если done() && detached_ - scheduler уже уничтожил или уничтожит
     }
   }
   Task(Task&& other) noexcept : coro_(std::exchange(other.coro_, nullptr)) {}
@@ -245,16 +235,13 @@ class Task<void> {
         if (coro.done()) {
           return false;
         }
-        // Устанавливаем флаг ожидания у вызывающей корутины
         auto caller_base =
             std::coroutine_handle<detail::PromiseBase>::from_address(
                 caller.address());
         caller_base.promise().waiting_for_nested_ = true;
-        // ВСЕГДА устанавливаем continuation, даже если уже scheduled
         coro.promise().continuation_ = caller;
-        // Enqueue только если еще не в очереди
         if (!coro.promise().scheduled_) {
-          CoroScheduler::getInstance().enqueueGlobal(coro);
+          CoroScheduler::getInstance().enqueue(coro);
         }
         return true;
       }

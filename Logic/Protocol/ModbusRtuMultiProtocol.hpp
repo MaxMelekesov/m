@@ -11,10 +11,12 @@
 #ifndef MODBUS_RTU_MULTI_PROTOCOL_HPP
 #define MODBUS_RTU_MULTI_PROTOCOL_HPP
 
-#include <DataLinkAsync.hpp>
+#include <CoroDelay.hpp>
+#include <CoroScheduler.hpp>
+#include <CoroYield.hpp>
+#include <IDataLink.hpp>
 #include <IPin.hpp>
 #include <ITime.hpp>
-#include <Us.hpp>
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -25,7 +27,8 @@
 
 namespace m {
 
-template <m::ifc::CUs UsT, m::ifc::mcu::CPin PintT, std::size_t AddrCount = 1>
+template <m::ifc::CTimeUs TimeUsT, m::ifc::mcu::CPin PintT,
+          std::size_t AddrCount = 1>
 class ModbusRtuMultiProtocol {
  public:
   enum class Commands : uint8_t {
@@ -53,7 +56,7 @@ class ModbusRtuMultiProtocol {
   };
 
   struct Timings {
-    UsT tx_response_delay;
+    decltype(std::declval<TimeUsT&>().getTick()) tx_response_delay;
   };
 
   // ReadCoils callback
@@ -87,7 +90,7 @@ class ModbusRtuMultiProtocol {
   using WMHR_Cb = std::function<std::optional<Error>(
       uint16_t start_addr, uint16_t regs_num, std::span<uint8_t> regs)>;
 
-  ModbusRtuMultiProtocol(m::ifc::IDataLink& data_link, m::ifc::ITime<UsT>& time,
+  ModbusRtuMultiProtocol(m::ifc::IDataLink& data_link, TimeUsT& time,
                          Timings timings, std::span<uint8_t> rx_buf,
                          std::span<uint8_t> tx_buf, PintT& rx_led,
                          PintT& tx_led)
@@ -136,65 +139,57 @@ class ModbusRtuMultiProtocol {
     cb_[index].wmhr_cb = std::move(cb);
   }
 
-  bool handle() {
+  m::Task<bool> coroRun() {
     if (data_link_.error()) {
       state_ = State::Idle;
       if (!data_link_.stopReceive()) {
-        return false;
+        co_return false;
       }
       if (!data_link_.stopTransmit()) {
-        return false;
+        co_return false;
       }
     }
 
-    switch (state_) {
-      case State::Idle: {
-        if (running_) {
-          if (data_link_.startReceive(rx_buf_)) {
-            state_ = State::ProcessPacket;
-            return true;
-          } else {
-            return false;
-          }
-        }
-      } break;
-      case State::ProcessPacket: {
-        if (auto value = data_link_.getPacket(); value) {
-          tx_packet_size_ = process(value.value(), tx_buf_);
-          rx_led_.toggle();
-          if (!tx_packet_size_) {
-            state_ = State::Idle;
-            return handle();
-          }
-
-          // TODO: switch delay to non blocking timer
-          time_.delay(timings_.tx_response_delay);
-
-          if (auto size = tx_packet_size_.value(); size) {
-            if (!data_link_.startTransmit(tx_buf_.first(size))) {
-              state_ = State::Idle;
-              return false;
-            }
-            tx_led_.toggle();
-          }
-          state_ = State::TransmitResponse;
-
-        } else {
-          return false;
-        }
-      } break;
-      case State::TransmitResponse: {
-        if (auto value = data_link_.transmitDone(); value) {
-          if (value.value()) {
-            state_ = State::Idle;
-            return handle();
-          } else {
-          }
-        }
-      } break;
+    if (running_) {
+      if (data_link_.startReceive(rx_buf_)) {
+        co_await m::coroYield();
+      } else {
+        co_return false;
+      }
+    } else {
+      co_return true;
     }
 
-    return true;
+    auto packet = data_link_.getPacket();
+    while (!packet) {
+      packet = data_link_.getPacket();
+      co_await m::coroYield();
+    }
+    tx_packet_size_ = process(packet.value(), tx_buf_);
+    if (!tx_packet_size_) {
+      co_return true;
+    }
+
+    rx_led_.toggle();
+
+    // TOOD: fast start after !tx_packet_size_
+
+    co_await m::coroDelay(time_, timings_.tx_response_delay);
+
+    if (auto size = tx_packet_size_.value(); size) {
+      if (!data_link_.startTransmit(tx_buf_.first(size))) {
+        co_return false;
+      }
+      tx_led_.toggle();
+    }
+
+    auto tx_done = data_link_.transmitDone();
+    while (!tx_done) {
+      tx_done = data_link_.transmitDone();
+      co_await m::coroYield();
+    }
+
+    co_return tx_done.value();
   }
 
   bool start() {
@@ -223,7 +218,7 @@ class ModbusRtuMultiProtocol {
 
  private:
   m::ifc::IDataLink& data_link_;
-  m::ifc::ITime<UsT>& time_;
+  TimeUsT& time_;
   Timings timings_;
   std::span<uint8_t> rx_buf_;
   std::span<uint8_t> tx_buf_;
@@ -724,6 +719,13 @@ class ModbusRtuMultiProtocol {
     return crc;
   }
 };
+
+template <m::ifc::CTimeUs TimeUsT, m::ifc::mcu::CPin PintT>
+ModbusRtuMultiProtocol(m::ifc::IDataLink&, TimeUsT&,
+                       typename ModbusRtuMultiProtocol<TimeUsT, PintT>::Timings,
+                       std::span<uint8_t>, std::span<uint8_t>, PintT&, PintT&)
+    -> ModbusRtuMultiProtocol<TimeUsT, PintT>;
+
 }  // namespace m
 
 #endif  // MODBUS_RTU_MULTI_PROTOCOL_HPP

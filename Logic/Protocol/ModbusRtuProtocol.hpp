@@ -26,7 +26,7 @@
 namespace m {
 
 template <m::ifc::CTimeUs TimeUsT>
-class ModbusRtuProtocol {
+class [[deprecated("Use ModbusRtuMultiProtocol instead")]] ModbusRtuProtocol {
  public:
   enum class Commands : uint8_t {
     ReadCoils = 1,
@@ -57,44 +57,35 @@ class ModbusRtuProtocol {
   };
 
   // ReadCoils callback
-  using RC_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t start_addr, uint16_t coils_num, std::span<uint8_t> coils)>;
+  using RC_Cb = std::function<std::optional<Error>(
+      uint16_t start_addr, uint16_t coils_num, std::span<uint8_t> coils)>;
 
   // ReadDiscreteInputs callback
-  using RDI_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t start_addr, uint16_t inputs_num, std::span<uint8_t> inputs)>;
+  using RDI_Cb = std::function<std::optional<Error>(
+      uint16_t start_addr, uint16_t inputs_num, std::span<uint8_t> inputs)>;
 
   // ReadMultipleHoldingRegisters callback
-  using RMHR_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
+  using RMHR_Cb = std::function<std::optional<Error>(
+      uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
 
   // ReadInputRegisters callback
-  using RIR_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
+  using RIR_Cb = std::function<std::optional<Error>(
+      uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
 
   // WriteSingleCoil callback
-  using WSC_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t addr, bool value)>;
+  using WSC_Cb = std::function<std::optional<Error>(uint16_t addr, bool value)>;
 
   // WriteSingleHoldingRegister callback
   using WSHR_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t addr, uint16_t value)>;
+      std::function<std::optional<Error>(uint16_t addr, uint16_t value)>;
 
   // WriteMultipleCoils callback
-  using WMC_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t start_addr, uint16_t coils_num, std::span<uint8_t> coils)>;
+  using WMC_Cb = std::function<std::optional<Error>(
+      uint16_t start_addr, uint16_t coils_num, std::span<uint8_t> coils)>;
 
   // WriteMultipleHoldingRegisters callback
-  using WMHR_Cb =
-      std::function<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>(
-          uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
+  using WMHR_Cb = std::function<std::optional<Error>(
+      uint16_t start_addr, uint16_t regs_num, std::span<uint16_t> regs)>;
 
   ModbusRtuProtocol(m::ifc::IDataLink& data_link, TimeUsT& time,
                     Timings timings, std::span<uint8_t> rx_buf,
@@ -430,29 +421,29 @@ class ModbusRtuProtocol {
     return std::nullopt;
   }
 
-  std::tuple<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>, uint32_t>
-  processReadCoils(std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
+  std::tuple<std::optional<Error>, uint32_t> processReadCoils(
+      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t coils_num = (rx_buf[2] << 8) + rx_buf[3];
 
     if (coils_num < 1 || coils_num > 0x07'D0) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     {
       uint32_t range = (int32_t)start_address + (int32_t)coils_num;
       if (range > 0xFF'FF) {
-        return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataAddress, 0};
+        return {Error::IllegalDataAddress, 0};
       }
     }
 
     uint32_t byte_count = (coils_num + 7) / 8;
     if (byte_count + 1 > tx_buf.size()) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::SlaveDeviceFailure, 0};
+      return {Error::SlaveDeviceFailure, 0};
     }
 
     tx_buf[0] = byte_count;
@@ -467,30 +458,29 @@ class ModbusRtuProtocol {
     }
   }
 
-  std::tuple<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>, uint32_t>
-  processReadDiscreteInputs(std::span<uint8_t> rx_buf,
-                            std::span<uint8_t> tx_buf) {
+  std::tuple<std::optional<Error>, uint32_t> processReadDiscreteInputs(
+      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t inputs_num = (rx_buf[2] << 8) + rx_buf[3];
 
     if (inputs_num < 1 || inputs_num > 0x07'D0) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     {
       uint32_t range = (int32_t)start_address + (int32_t)inputs_num;
       if (range > 0xFF'FF) {
-        return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataAddress, 0};
+        return {Error::IllegalDataAddress, 0};
       }
     }
 
     uint32_t byte_count = (inputs_num + 7) / 8;
     if (byte_count + 1 > tx_buf.size()) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::SlaveDeviceFailure, 0};
+      return {Error::SlaveDeviceFailure, 0};
     }
 
     tx_buf[0] = byte_count;
@@ -505,30 +495,30 @@ class ModbusRtuProtocol {
     }
   }
 
-  std::tuple<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>, uint32_t>
+  std::tuple<std::optional<Error>, uint32_t>
   processReadMultipleHoldingRegisters(std::span<uint8_t> rx_buf,
                                       std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t regs_num = (rx_buf[2] << 8) + rx_buf[3];
 
     if (regs_num < 1 || regs_num > 0x00'7D) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     {
       uint32_t range = (int32_t)start_address + (int32_t)regs_num;
       if (range > 0xFF'FF) {
-        return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataAddress, 0};
+        return {Error::IllegalDataAddress, 0};
       }
     }
 
     uint32_t byte_count = regs_num * 2;
     if (byte_count + 1 > tx_buf.size()) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::SlaveDeviceFailure, 0};
+      return {Error::SlaveDeviceFailure, 0};
     }
 
     tx_buf[0] = regs_num * 2;
@@ -547,30 +537,29 @@ class ModbusRtuProtocol {
     return {std::nullopt, byte_count + 1};
   }
 
-  std::tuple<std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>, uint32_t>
-  processReadInputRegisters(std::span<uint8_t> rx_buf,
-                            std::span<uint8_t> tx_buf) {
+  std::tuple<std::optional<Error>, uint32_t> processReadInputRegisters(
+      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
     uint16_t regs_num = (rx_buf[2] << 8) + rx_buf[3];
 
     if (regs_num < 1 || regs_num > 0x00'7D) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue, 0};
+      return {Error::IllegalDataValue, 0};
     }
 
     {
       uint32_t range = (int32_t)start_address + (int32_t)regs_num;
       if (range > 0xFF'FF) {
-        return {m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataAddress, 0};
+        return {Error::IllegalDataAddress, 0};
       }
     }
 
     uint32_t byte_count = regs_num * 2;
     if (byte_count + 1 > tx_buf.size()) {
-      return {m::ModbusRtuProtocol<TimeUsT>::Error::SlaveDeviceFailure, 0};
+      return {Error::SlaveDeviceFailure, 0};
     }
 
     tx_buf[0] = regs_num * 2;
@@ -587,10 +576,10 @@ class ModbusRtuProtocol {
     }
   }
 
-  std::optional<m::ModbusRtuProtocol<TimeUsT>::Error> processWriteSingleCoil(
-      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
+  std::optional<Error> processWriteSingleCoil(std::span<uint8_t> rx_buf,
+                                              std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     uint16_t addr = (rx_buf[0] << 8) + rx_buf[1];
@@ -604,11 +593,10 @@ class ModbusRtuProtocol {
     }
   }
 
-  std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>
-  processWriteSingleHoldingRegister(std::span<uint8_t> rx_buf,
-                                    std::span<uint8_t> tx_buf) {
+  std::optional<Error> processWriteSingleHoldingRegister(
+      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     uint16_t addr = (rx_buf[0] << 8) + rx_buf[1];
@@ -622,10 +610,10 @@ class ModbusRtuProtocol {
     }
   }
 
-  std::optional<m::ModbusRtuProtocol<TimeUsT>::Error> processWriteMultipleCoils(
-      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
+  std::optional<Error> processWriteMultipleCoils(std::span<uint8_t> rx_buf,
+                                                 std::span<uint8_t> tx_buf) {
     if (rx_buf.size() < 5) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
@@ -634,11 +622,11 @@ class ModbusRtuProtocol {
 
     if (coils_num < 1 || coils_num > 0x07'B0 ||
         byte_count != (coils_num + 7) / 8) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     if (rx_buf.size() != byte_count + 5u) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     std::span<uint8_t> coils = rx_buf.subspan(5, byte_count);
@@ -651,11 +639,10 @@ class ModbusRtuProtocol {
     }
   }
 
-  std::optional<m::ModbusRtuProtocol<TimeUsT>::Error>
-  processWriteMultipleHoldingRegisters(std::span<uint8_t> rx_buf,
-                                       std::span<uint8_t> tx_buf) {
+  std::optional<Error> processWriteMultipleHoldingRegisters(
+      std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
     if (rx_buf.size() < 5) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     uint16_t start_address = (rx_buf[0] << 8) + rx_buf[1];
@@ -663,11 +650,11 @@ class ModbusRtuProtocol {
     uint8_t byte_count = rx_buf[4];
 
     if (regs_num < 1 || regs_num > 0x007B || byte_count != regs_num * 2) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     if (rx_buf.size() != byte_count + 5u) {
-      return m::ModbusRtuProtocol<TimeUsT>::Error::IllegalDataValue;
+      return Error::IllegalDataValue;
     }
 
     std::span<uint16_t> regs = std::span<uint16_t>{
@@ -697,7 +684,7 @@ class ModbusRtuProtocol {
     for (auto i = 0u; i < data.size(); ++i) {
       crc ^= data[i];
 
-      for (char bit = 0; bit < 8; bit++) {
+      for (uint8_t bit = 0; bit < 8; bit++) {
         xorv = crc & 0x01;
         crc >>= 1;
         crc ^= table[xorv];

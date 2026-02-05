@@ -138,6 +138,11 @@ class DataLinkAsync : public ifc::IDataLink {
   std::span<uint8_t> rx_buf_;
 };
 
+template <ifc::CUs UsT, ifc::CBps BpsT>
+DataLinkAsync(ifc::ITime<UsT>&, ifc::IIO_Async<BpsT>&,
+              typename DataLinkAsync<UsT, BpsT>::Timings)
+    -> DataLinkAsync<UsT, BpsT>;
+
 }  // namespace m
 
 #endif  // DATA_LINK_ASYNC_HPP

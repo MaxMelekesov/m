@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef FSM_V4_H
-#define FSM_V4_H
+#ifndef FSM_V4_HPP
+#define FSM_V4_HPP
 
 #include <type_traits>
 #include <variant>
@@ -266,4 +266,4 @@ class Fsm_v4 {
 };
 }  // namespace m
 
-#endif  // FSM_V4_H
+#endif  // FSM_V4_HPP

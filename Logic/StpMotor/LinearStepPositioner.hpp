@@ -11,7 +11,7 @@
 #ifndef LINEAR_STEP_POSITIONER_HPP
 #define LINEAR_STEP_POSITIONER_HPP
 #include <IStepCounter.hpp>
-#include <IStepDriverCtrl.hpp>
+#include <IStepDriver.hpp>
 #include <IStepGen.hpp>
 #include <ITime.hpp>
 #include <Ms.hpp>
@@ -21,15 +21,13 @@
 namespace m {
 
 // TODO: template & concepts
+template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
 class LinearStepPositioner {
  private:
-  using DrvT = m::ifc::IStepDriverCtrl<mA<uint32_t>>;
-  using CtrT = m::ifc::IStepCounter;
-  using GenT = m::ifc::IStepGen;
-
  public:
-  LinearStepPositioner(m::ifc::ITime<Ms<uint32_t>>& time, DrvT& drv, CtrT& ctr,
-                       GenT& gen)
+  LinearStepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
+                       StepGenT& gen)
       : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
     gen_.setCallback([&]() {
       if (steps_to_load_) {
@@ -44,14 +42,14 @@ class LinearStepPositioner {
         }
         if (steps_to_load_ >= spms_) {
           steps_to_load_ -= spms_;
-          return GenT::Step{.freq = v_, .steps = spms_};
+          return typename StepGenT::Step{.freq = v_, .steps = spms_};
         } else {
           uint32_t steps = steps_to_load_;
           steps_to_load_ = 0;
-          return GenT::Step{.freq = v_, .steps = steps};
+          return typename StepGenT::Step{.freq = v_, .steps = steps};
         }
       }
-      return GenT::Step{.freq = 0, .steps = 0};
+      return typename StepGenT::Step{.freq = 0, .steps = 0};
     });
 
     setSpeed(1'500);
@@ -73,11 +71,11 @@ class LinearStepPositioner {
     if (steps == 0) return true;
 
     if (steps > 0) {
-      drv_.setDirection(DrvT::Dir::Forward);
-      ctr_.setDirection(CtrT::Dir::Up);
+      drv_.setDirection(StepDriverT::Dir::Forward);
+      ctr_.setDirection(StepCounterT::Dir::Up);
     } else {
-      drv_.setDirection(DrvT::Dir::Backward);
-      ctr_.setDirection(CtrT::Dir::Down);
+      drv_.setDirection(StepDriverT::Dir::Backward);
+      ctr_.setDirection(StepCounterT::Dir::Down);
     }
 
     drv_.setEnable(1);
@@ -110,10 +108,10 @@ class LinearStepPositioner {
   bool getAutohold() { return autohold_; }
 
  private:
-  m::ifc::ITime<Ms<uint32_t>>& time_;
-  DrvT& drv_;
-  CtrT& ctr_;
-  GenT& gen_;
+  TimeMsT& time_;
+  StepDriverT& drv_;
+  StepCounterT& ctr_;
+  StepGenT& gen_;
 
   bool autohold_ = false;
 

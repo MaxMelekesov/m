@@ -11,6 +11,7 @@
 #ifndef S_ACC_CURVE_HPP
 #define S_ACC_CURVE_HPP
 #include <Ms.hpp>
+#include <array>
 #include <cmath>
 #include <cstdint>
 

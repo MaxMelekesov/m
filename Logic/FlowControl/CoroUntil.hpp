@@ -17,6 +17,7 @@
 namespace m {
 
 template <typename Predicate>
+// Run the coroutine until the predicate returns true.
 [[nodiscard]] inline auto coroUntil(Predicate&& pred) -> Task<void> {
   while (!pred()) {
     co_await m::coroYield();

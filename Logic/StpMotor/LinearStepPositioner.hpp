@@ -35,9 +35,7 @@ class LinearStepPositioner {
  public:
   LinearStepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
                        StepGenT& gen)
-      : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
-    setSpeed(1'500);
-  }
+      : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {}
 
   m::Task<void> coroRun() {
     if (start_pending_) {
@@ -50,7 +48,7 @@ class LinearStepPositioner {
     gen_.setCallback([&]() {
       int32_t pending = pending_steps_.load(std::memory_order_acquire);
       if (!pending) {
-        return typename StepGenT::Step{.freq = 0, .steps = 0};
+        return typename StepGenT::Step{.freq = 0, .steps = 0, .dummy = false};
       }
 
       typename StepDriverT::Dir desired_dir = (pending > 0)
@@ -65,23 +63,20 @@ class LinearStepPositioner {
       }
 
       uint32_t v = v_.load(std::memory_order_acquire);
-      if (v != last_v_) {
-        spms_ = calcStepsPerMs(v);
-        last_v_ = v;
-      }
 
       uint32_t remaining =
           static_cast<uint32_t>((pending > 0) ? pending : -pending);
-      uint32_t chunk = std::min(spms_, remaining);
+      StepsForMs chunk_info = calcStepsForMs(v, 1u);
+      uint32_t chunk = std::min(chunk_info.steps, remaining);
       if (!chunk) {
-        return typename StepGenT::Step{.freq = 0, .steps = 0};
+        return typename StepGenT::Step{.freq = 0, .steps = 0, .dummy = false};
       }
 
       int32_t delta = (pending > 0) ? -static_cast<int32_t>(chunk)
                                     : static_cast<int32_t>(chunk);
       pending_steps_.fetch_add(delta, std::memory_order_acq_rel);
 
-      return typename StepGenT::Step{.freq = v, .steps = chunk};
+      return typename StepGenT::Step{.freq = v, .steps = chunk, .dummy = false};
     });
 
     if (!ctr_.running()) {
@@ -133,6 +128,8 @@ class LinearStepPositioner {
     return true;
   }
 
+  uint32_t getSpeed() const { return v_.load(std::memory_order_acquire); }
+
   void setAutohold(bool value) { autohold_ = value; }
   bool getAutohold() { return autohold_; }
 
@@ -145,21 +142,34 @@ class LinearStepPositioner {
   bool autohold_ = false;
   bool start_pending_ = false;
 
-  uint32_t calcStepsPerMs(uint32_t v) const {
-    float temp = static_cast<float>(v);
-    temp = std::ceilf(temp / 1'000.0f);
-    uint32_t spms = (temp > 1.0f) ? static_cast<uint32_t>(temp) : 1u;
-    uint32_t max_steps = gen_.maxSteps();
-    if (max_steps && spms > max_steps) {
-      spms = max_steps;
+  struct StepsForMs {
+    uint32_t steps;
+    uint32_t ms;
+  };
+
+  StepsForMs calcStepsForMs(uint32_t v, uint32_t ms) const {
+    if (!v) {
+      return StepsForMs{0, 0};
     }
-    return spms;
+
+    uint32_t min_ms = (1'000u + v - 1u) / v;
+    uint32_t used_ms = (ms >= min_ms) ? ms : min_ms;
+    uint64_t steps = (static_cast<uint64_t>(v) * used_ms) / 1'000u;
+    if (!steps) {
+      steps = 1;
+    }
+
+    uint32_t max_steps = gen_.maxSteps();
+    if (max_steps && steps > max_steps) {
+      steps = max_steps;
+      used_ms = static_cast<uint32_t>((steps * 1'000u + v - 1u) / v);
+    }
+
+    return StepsForMs{static_cast<uint32_t>(steps), used_ms};
   }
 
   std::atomic<int32_t> pending_steps_{0};
   std::atomic<uint32_t> v_{1'500};
-  uint32_t last_v_ = 0;
-  uint32_t spms_ = 1;
   typename StepDriverT::Dir current_dir_ = StepDriverT::Dir::Forward;
 };
 

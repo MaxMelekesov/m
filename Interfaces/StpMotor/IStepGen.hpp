@@ -23,6 +23,7 @@ class IStepGen {
   struct Step {
     uint32_t freq;
     uint32_t steps;
+    bool dummy = false;
   };
 
   using NextStepCallback = std::function<Step()>;
@@ -41,6 +42,7 @@ concept CStepGen = requires(T gen, typename T::NextStepCallback cb) {
   requires requires(typename T::Step step) {
     { step.freq } -> std::convertible_to<uint32_t>;
     { step.steps } -> std::convertible_to<uint32_t>;
+    { step.dummy } -> std::convertible_to<bool>;
   };
   { gen.setCallback(std::move(cb)) } -> std::same_as<void>;
   { gen.start() } -> std::same_as<bool>;

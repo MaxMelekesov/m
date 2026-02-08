@@ -10,10 +10,12 @@
 
 #ifndef IO_ASYNC_LOG_HPP
 #define IO_ASYNC_LOG_HPP
+#include <Bps.hpp>
 #include <IIO_Async.hpp>
 #include <ILog.hpp>
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <ranges>
 #include <string_view>

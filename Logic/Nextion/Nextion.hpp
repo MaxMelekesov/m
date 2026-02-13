@@ -131,7 +131,7 @@ concept CNextion = requires(T nxt, const Component& component, uint32_t id,
   { nxt.setNumber(component, 0) } -> std::same_as<m::Task<bool>>;
 };
 
-template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents = 32,
+template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents = 256,
           std::size_t BufferSize = 256>
 class Nextion
     : public m::Fsm_v4<

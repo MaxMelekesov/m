@@ -164,7 +164,7 @@ struct Ads1256 {
                            m::Pair<Selfcal, 0xF0>>;
 };
 
-template <m::ifc::CUs Us, m::ifc::CTime<Us> Time, m::ifc::CIO_Async Io>
+template <m::ifc::CUs Us, m::ifc::CTimeUs Time, m::ifc::CIO_Async Io>
 class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
  public:
   Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs, Us add_timeout)
@@ -316,7 +316,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
   friend class Ic<Ads1256Ic<Us, Time, Io>, Ads1256>;
 };
 
-template <m::ifc::CUs Us, m::ifc::CTime<Us> Time, m::ifc::CIO_Async Io,
+template <m::ifc::CUs Us, m::ifc::CTimeUs Time, m::ifc::CIO_Async Io,
           m::ifc::mcu::CIt It>
 class Ads1256Reader {
  public:

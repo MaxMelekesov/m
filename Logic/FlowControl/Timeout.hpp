@@ -17,10 +17,10 @@
 
 namespace m {
 
-template <typename TimeIfc, typename TimeUnit>
-  requires m::ifc::CTime<TimeIfc, TimeUnit>
-bool execWithTimeout(TimeIfc& time, const std::function<bool()>& code,
-                     TimeUnit timeout) {
+template <typename TimeT, typename TimeUnitT>
+  requires m::ifc::CTime<TimeT> && m::ifc::CTimeUnit<TimeUnitT>
+bool execWithTimeout(TimeT& time, const std::function<bool()>& code,
+                     TimeUnitT timeout) {
   auto start = time.getTick();
   while (!code()) {
     if (time.getDiff(start) > timeout) return false;

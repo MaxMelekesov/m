@@ -225,18 +225,17 @@ struct Fdc1004 {
                    m::Pair<Device, 0xFF>> {};
 };
 
-template <m::ifc::CUs TimeUnit, m::ifc::CTime<TimeUnit> Time,
-          m::ifc::CIO_Async Io>
-class Fdc1004Sync : public Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
+template <m::ifc::CUs UsT, m::ifc::CTimeUs TimeT, m::ifc::CIO_Async IoT>
+class Fdc1004Sync : public Ic<Fdc1004Sync<UsT, TimeT, IoT>, Fdc1004> {
  public:
-  Fdc1004Sync(Time& time, Io& io, TimeUnit add_timeout)
+  Fdc1004Sync(TimeT& time, IoT& io, UsT add_timeout)
       : time_(time), io_(io), add_timeout_(add_timeout) {}
 
  private:
-  Time& time_;
-  Io& io_;
-  TimeUnit add_timeout_;
-  m::Timeout<TimeUnit> timeout_{time_};
+  TimeT& time_;
+  IoT& io_;
+  UsT add_timeout_;
+  m::Timeout<UsT> timeout_{time_};
 
   constexpr static uint8_t Addr = 0x50;
 
@@ -284,7 +283,7 @@ class Fdc1004Sync : public Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
 
     if (!timeout_.execWithTimeout(
             [&]() { return io_.writeDone(); },
-            span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
+            span.size() * UsT{1'000} / io_.getBaudrate().value() +
                 add_timeout_)) {
       return false;
     }
@@ -297,7 +296,7 @@ class Fdc1004Sync : public Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
 
     if (!timeout_.execWithTimeout(
             [&]() { return io_.readDone(); },
-            span.size() * TimeUnit{1'000} / io_.getBaudrate().value() +
+            span.size() * UsT{1'000} / io_.getBaudrate().value() +
                 add_timeout_)) {
       return false;
     }
@@ -305,8 +304,12 @@ class Fdc1004Sync : public Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004> {
     return true;
   }
 
-  friend class Ic<Fdc1004Sync<TimeUnit, Time, Io>, Fdc1004>;
+  friend class Ic<Fdc1004Sync<UsT, TimeT, IoT>, Fdc1004>;
 };
+
+template <m::ifc::CUs UsT, m::ifc::CTimeUs TimeT, m::ifc::CIO_Async IoT>
+Fdc1004Sync(TimeT& time, IoT& io, UsT add_timeout)
+    -> Fdc1004Sync<UsT, TimeT, IoT>;
 
 namespace detail {
 struct Idle : public m::State {};
@@ -328,8 +331,8 @@ struct WaitReg : public m::State {};
 struct WriteAddr : public m::Event {};
 struct ReadReg : public m::Event {};
 
-template <m::ifc::CIO_Async Io>
-class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
+template <m::ifc::CIO_Async IoT>
+class FsmReadReg : public m::Fsm_v4<FsmReadReg<IoT>, Idle,
                                     m::Transition<Idle, WriteAddr, Wait>,
 
                                     m::Transition<Wait, ReadReg, WaitReg>,
@@ -338,7 +341,7 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
 
                                     > {
  public:
-  FsmReadReg(Io& io) : io_(io) {}
+  FsmReadReg(IoT& io) : io_(io) {}
 
   void handle() { this->checkEvents(); }
 
@@ -356,7 +359,7 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
   std::optional<uint16_t> getReg() { return reg_; }
 
  private:
-  Io& io_;
+  IoT& io_;
 
   uint8_t addr_ = 0;
   std::optional<uint16_t> reg_;
@@ -401,7 +404,7 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
   //   m::DebugLogger<>::getInstance().add("State: WaitReg");
   // }
 
-  friend m::Fsm_v4<FsmReadReg<Io>, Idle, m::Transition<Idle, WriteAddr, Wait>,
+  friend m::Fsm_v4<FsmReadReg<IoT>, Idle, m::Transition<Idle, WriteAddr, Wait>,
                    m::Transition<Wait, ReadReg, WaitReg>,
                    m::Transition<WaitReg, ReadDone, Idle>>;
 
@@ -422,10 +425,10 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<Io>, Idle,
 };
 }  // namespace detail
 
-template <m::ifc::CIO_Async Io>
+template <m::ifc::CIO_Async IoT>
 class Fdc1004Reader
     : public m::Fsm_v4<
-          Fdc1004Reader<Io>, detail::Idle,
+          Fdc1004Reader<IoT>, detail::Idle,
           m::Transition<detail::Idle, detail::Startup, detail::Check>,
 
           m::Transition<detail::Check, detail::Stop, detail::Idle>,
@@ -444,7 +447,7 @@ class Fdc1004Reader
 
           > {
  public:
-  Fdc1004Reader(Io& io) : io_(io) {}
+  Fdc1004Reader(IoT& io) : io_(io) {}
 
   void handle() { this->checkEvents(); }
 
@@ -462,14 +465,14 @@ class Fdc1004Reader
   std::size_t readed() { return size_ - data_.size(); }
 
  private:
-  Io& io_;
+  IoT& io_;
   bool start_ = false;
   std::span<uint32_t> data_;
   std::size_t size_ = 0;
 
   uint32_t meas_ = 0;
 
-  detail::FsmReadReg<Io> fsm_read_reg_{io_};
+  detail::FsmReadReg<IoT> fsm_read_reg_{io_};
 
   // Idle
   bool checkEvent(detail::Idle, detail::Startup) { return start_; }
@@ -562,7 +565,7 @@ class Fdc1004Reader
   // }
 
   friend m::Fsm_v4<
-      Fdc1004Reader<Io>, detail::Idle,
+      Fdc1004Reader<IoT>, detail::Idle,
       m::Transition<detail::Idle, detail::Startup, detail::Check>,
 
       m::Transition<detail::Check, detail::Stop, detail::Idle>,
@@ -578,6 +581,9 @@ class Fdc1004Reader
 
       >;
 };
+
+template <m::ifc::CIO_Async IoT>
+Fdc1004Reader(IoT& io) -> Fdc1004Reader<IoT>;
 }  // namespace m::ic
 
 #endif  // FDC1004_HPP

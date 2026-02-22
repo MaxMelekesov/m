@@ -131,7 +131,7 @@ concept CNextion = requires(T nxt, const Component& component, uint32_t id,
   { nxt.setNumber(component, 0) } -> std::same_as<m::Task<bool>>;
 };
 
-template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents = 32,
+template <m::ifc::CRingDataLink IoType, std::size_t MaxComponents = 256,
           std::size_t BufferSize = 256>
 class Nextion
     : public m::Fsm_v4<
@@ -289,9 +289,11 @@ class Nextion
     EventType event = static_cast<EventType>(packet[3]);
 
     for (auto c : components_) {
-      if (c->getPageId() == page_id && c->getComponentId() == component_id) {
-        c->onEvent(event, 0u);
-        break;
+      if (c) {
+        if (c->getPageId() == page_id && c->getComponentId() == component_id) {
+          c->onEvent(event, 0u);
+          break;
+        }
       }
     }
   }
@@ -307,9 +309,11 @@ class Nextion
     auto [value] = m::deserialize<uint32_t>(packet.subspan(2, 4));
 
     for (auto c : components_) {
-      if (c->getComponentId() == component_id) {
-        c->onEvent(EventType::ValueChanged, value);
-        break;
+      if (c) {
+        if (c->getComponentId() == component_id) {
+          c->onEvent(EventType::ValueChanged, value);
+          break;
+        }
       }
     }
   }
@@ -326,16 +330,18 @@ class Nextion
         packet.size() - 5;  // Return code + component ID + 3xFF
 
     for (auto c : components_) {
-      if (c->getComponentId() == component_id) {
-        std::array<char, 64> tempStr{};
-        std::size_t copyLength = std::min(length, tempStr.size());
+      if (c) {
+        if (c->getComponentId() == component_id) {
+          std::array<char, 64> tempStr{};
+          std::size_t copyLength = std::min(length, tempStr.size());
 
-        std::copy(packet.begin() + 2, packet.begin() + 2 + copyLength,
-                  tempStr.begin());
+          std::copy(packet.begin() + 2, packet.begin() + 2 + copyLength,
+                    tempStr.begin());
 
-        c->onEvent(EventType::ValueChanged,
-                   std::string_view(tempStr.data(), copyLength));
-        break;
+          c->onEvent(EventType::ValueChanged,
+                     std::string_view(tempStr.data(), copyLength));
+          break;
+        }
       }
     }
   }

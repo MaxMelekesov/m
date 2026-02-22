@@ -122,9 +122,7 @@ class ModbusRtuMaster {
   }
 
   uint32_t writeMhrRequestSize(Unit& unit) { return unit.reg_count_ * 2u + 9u; }
-  uint32_t writeMhrResponseSize(Unit& unit) {
-    return unit.reg_count_ * 2u + 9u;
-  }
+  uint32_t writeMhrResponseSize(Unit& unit) { return 8u; }
 
   bool writeMhr(Unit& unit, std::span<uint8_t> data,
                 std::span<uint8_t> request_buf,
@@ -211,7 +209,9 @@ class ModbusRtuMaster {
         }
         break;
       case 0x06: {
-        if (response.size() != 8u) return Error::BadSize;
+        if (response.size() != 8u) {
+          return Error::BadSize;
+        }
         std::span<uint8_t> temp{(uint8_t*)&unit_, sizeof(Unit)};
         for (auto i = 0u; i < response.size(); ++i) {
           if (response[i] != temp[i]) {
@@ -223,7 +223,7 @@ class ModbusRtuMaster {
         if (response.size() != writeMhrResponseSize(unit_)) {
           return Error::BadSize;
         }
-        for (auto i = 0u; i < response.size(); ++i) {
+        for (auto i = 0u; i < 6; ++i) {
           if (response[i] != request_buf_[i]) {
             return Error::Corrupted;
           }

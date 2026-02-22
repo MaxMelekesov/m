@@ -17,17 +17,6 @@
 
 #include "stm32g4xx_hal.h"
 
-using MsT = Ms<uint32_t>;
-using UsT = Us<uint16_t>;
-
-static inline constexpr UsT operator""_Us(uint64_t value) {
-  return UsT{static_cast<UsT::type>(value)};
-}
-
-static inline constexpr MsT operator""_Ms(uint64_t value) {
-  return MsT{static_cast<MsT::type>(value)};
-}
-
 class TimeUs final : public m::ifc::ITime<Us<uint16_t>> {
  public:
   TimeUs() {

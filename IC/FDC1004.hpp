@@ -19,7 +19,10 @@
 #include <StaticMap.hpp>
 #include <Timeout.hpp>
 #include <Us.hpp>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace m::ic {
 
@@ -584,6 +587,15 @@ class Fdc1004Reader
 
 template <m::ifc::CIO_Async IoT>
 Fdc1004Reader(IoT& io) -> Fdc1004Reader<IoT>;
+
+template <typename T>
+concept CFdc1004Reader = requires(T& reader, std::span<uint32_t> data) {
+  { reader.start(data) } -> std::same_as<bool>;
+  { reader.readDone() } -> std::same_as<bool>;
+  { reader.readed() } -> std::convertible_to<std::size_t>;
+  { reader.handle() } -> std::same_as<void>;
+};
+
 }  // namespace m::ic
 
 #endif  // FDC1004_HPP

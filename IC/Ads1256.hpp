@@ -394,9 +394,17 @@ class Ads1256Reader {
 
 template <m::ifc::CTimeUs Time, m::ifc::CIO_Async Io, m::ifc::mcu::CIt It>
 Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& drdy)
-  -> Ads1256Reader<
-    std::remove_cvref_t<decltype(std::declval<Time&>().getTick())>, Time,
-    Io, It>;
+    -> Ads1256Reader<
+        std::remove_cvref_t<decltype(std::declval<Time&>().getTick())>, Time,
+        Io, It>;
+
+template <typename T>
+concept CAds1256Reader = requires(T& reader, std::span<int32_t> data) {
+  { reader.startRead(data) } -> std::same_as<bool>;
+  { reader.readDone() } -> std::same_as<bool>;
+  { reader.readed() } -> std::convertible_to<std::size_t>;
+  { reader.stopRead() } -> std::same_as<bool>;
+};
 
 }  // namespace m::ic
 

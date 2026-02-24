@@ -454,7 +454,7 @@ class Fdc1004Reader
 
   void handle() { this->checkEvents(); }
 
-  bool start(std::span<uint32_t> data) {
+  bool start(std::span<int32_t> data) {
     if (!data_.empty()) return false;
 
     size_ = data.size();
@@ -470,7 +470,7 @@ class Fdc1004Reader
  private:
   IoT& io_;
   bool start_ = false;
-  std::span<uint32_t> data_;
+  std::span<int32_t> data_;
   std::size_t size_ = 0;
 
   uint32_t meas_ = 0;
@@ -533,7 +533,8 @@ class Fdc1004Reader
   void handleEvent(detail::WaitMeas2, detail::ReadDone) {
     meas_ |= static_cast<uint32_t>(fsm_read_reg_.getReg().value());
     meas_ = meas_ >> 8;
-    data_[0] = meas_;
+    if (meas_ & 0x00'80'00'00) meas_ = meas_ | 0xFF'00'00'00;
+    data_[0] = static_cast<int32_t>(meas_);
     data_ = data_.subspan(1);
   }
 
@@ -589,7 +590,7 @@ template <m::ifc::CIO_Async IoT>
 Fdc1004Reader(IoT& io) -> Fdc1004Reader<IoT>;
 
 template <typename T>
-concept CFdc1004Reader = requires(T& reader, std::span<uint32_t> data) {
+concept CFdc1004Reader = requires(T& reader, std::span<int32_t> data) {
   { reader.start(data) } -> std::same_as<bool>;
   { reader.readDone() } -> std::same_as<bool>;
   { reader.readed() } -> std::convertible_to<std::size_t>;

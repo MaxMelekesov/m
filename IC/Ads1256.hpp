@@ -349,6 +349,7 @@ class Ads1256Reader {
           }
           if (data_.size()) {
             data_[0] = static_cast<int32_t>(reg_raw);
+            last_value_ = data_[0];
             data_ = data_.subspan(1);
           } else {
             stopRead();
@@ -377,6 +378,8 @@ class Ads1256Reader {
     return true;
   }
 
+  int32_t lastValue() { return last_value_; }
+
  private:
   Time& time_;
   Io& io_;
@@ -390,6 +393,8 @@ class Ads1256Reader {
 
   bool start_flag_ = false;
   bool stop_flag_ = false;
+
+  int32_t last_value_ = 0;
 };
 
 template <m::ifc::CTimeUs Time, m::ifc::CIO_Async Io, m::ifc::mcu::CIt It>

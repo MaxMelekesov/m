@@ -145,7 +145,7 @@ class Task {
   Task(Task&& other) noexcept : coro_(std::exchange(other.coro_, nullptr)) {}
   Task& operator=(Task&&) = delete;
 
-  [[nodiscard]] auto operator co_await() && {
+  [[nodiscard]] auto operator co_await() & {
     struct Awaiter {
       std::coroutine_handle<promise_type> coro;
 
@@ -166,11 +166,52 @@ class Task {
         return true;
       }
 
-      T await_resume() { return std::move(coro.promise().result_); }
+      T await_resume() {
+        if (!coro) {
+          return T{};
+        }
+        return std::move(coro.promise().result_);
+      }
 
       ~Awaiter() = default;
     };
     return Awaiter{coro_};
+  }
+
+  [[nodiscard]] auto operator co_await() && {
+    auto coro = std::exchange(coro_, nullptr);
+    struct Awaiter {
+      std::coroutine_handle<promise_type> coro;
+
+      bool await_ready() { return !coro || coro.done(); }
+
+      bool await_suspend(std::coroutine_handle<> caller) {
+        if (coro.done()) {
+          return false;
+        }
+        auto caller_base =
+            std::coroutine_handle<detail::PromiseBase>::from_address(
+                caller.address());
+        caller_base.promise().waiting_for_nested_ = true;
+        coro.promise().continuation_ = caller;
+        if (!coro.promise().scheduled_) {
+          CoroScheduler::getInstance().enqueue(coro);
+        }
+        return true;
+      }
+
+      T await_resume() {
+        if (!coro) {
+          return T{};
+        }
+        T result = std::move(coro.promise().result_);
+        coro.destroy();
+        return result;
+      }
+
+      ~Awaiter() = default;
+    };
+    return Awaiter{coro};
   }
 
  private:
@@ -225,7 +266,7 @@ class Task<void> {
   Task(Task&& other) noexcept : coro_(std::exchange(other.coro_, nullptr)) {}
   Task& operator=(Task&&) = delete;
 
-  [[nodiscard]] auto operator co_await() && {
+  [[nodiscard]] auto operator co_await() & {
     struct Awaiter {
       std::coroutine_handle<promise_type> coro;
 
@@ -251,6 +292,39 @@ class Task<void> {
       ~Awaiter() = default;
     };
     return Awaiter{coro_};
+  }
+
+  [[nodiscard]] auto operator co_await() && {
+    auto coro = std::exchange(coro_, nullptr);
+    struct Awaiter {
+      std::coroutine_handle<promise_type> coro;
+
+      bool await_ready() { return !coro || coro.done(); }
+
+      bool await_suspend(std::coroutine_handle<> caller) {
+        if (coro.done()) {
+          return false;
+        }
+        auto caller_base =
+            std::coroutine_handle<detail::PromiseBase>::from_address(
+                caller.address());
+        caller_base.promise().waiting_for_nested_ = true;
+        coro.promise().continuation_ = caller;
+        if (!coro.promise().scheduled_) {
+          CoroScheduler::getInstance().enqueue(coro);
+        }
+        return true;
+      }
+
+      void await_resume() {
+        if (coro) {
+          coro.destroy();
+        }
+      }
+
+      ~Awaiter() = default;
+    };
+    return Awaiter{coro};
   }
 
  private:

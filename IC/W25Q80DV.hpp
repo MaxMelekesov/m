@@ -1,4 +1,15 @@
-#pragma once
+/**
+ * This file is part of m library.
+ *
+ * m library is free software: you can redistribute it and/or modify
+ * it under the terms of the MIT License. See the LICENSE file in the
+ * project root for more information.
+ *
+ * Copyright (c) 2026 Max Melekesov <max.melekesov@gmail.com>
+ */
+
+#ifndef W25Q80DV_HPP
+#define W25Q80DV_HPP
 
 #include <Bps.hpp>
 #include <IFlashMemory.hpp>
@@ -366,3 +377,5 @@ static_assert(m::ifc::CFlashMemory<W25Q80DV>,
               "W25Q80DV must satisfy CFlashMemory concept");
 
 }  // namespace m::ic
+
+#endif  // W25Q80DV_HPP

@@ -16,7 +16,7 @@
 #include <IIO_Async.hpp>
 #include <IPin.hpp>
 #include <ITime.hpp>
-#include <Ms.hpp>
+#include <Us.hpp>
 #include <Timeout.hpp>
 #include <algorithm>
 #include <array>
@@ -33,7 +33,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
   static constexpr std::size_t Page_Size_Bytes = 256;
 
   W25Q80DV(m::ifc::IIO_Async<Bps<uint32_t>>& spi, m::ifc::mcu::IPin& cs_pin,
-           m::ifc::ITime<Ms<uint32_t>>& time)
+       m::ifc::ITime<Us<uint32_t>>& time)
       : spi_(spi), cs_pin_(cs_pin), time_(time) {}
 
   std::size_t size() override { return Total_Size_Bytes; }
@@ -149,7 +149,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     return jedec[0] == 0xEF && jedec[1] == 0x40 && jedec[2] == 0x14;
   }
 
-  bool waitReady(Ms<uint32_t> timeout) { return waitWhileBusy(timeout); }
+  bool waitReady(Us<uint32_t> timeout) { return waitWhileBusy(timeout); }
 
  private:
   enum class Command : uint8_t {
@@ -168,7 +168,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
 
   m::ifc::IIO_Async<Bps<uint32_t>>& spi_;
   m::ifc::mcu::IPin& cs_pin_;
-  m::ifc::ITime<Ms<uint32_t>>& time_;
+  m::ifc::ITime<Us<uint32_t>>& time_;
   std::array<uint8_t, Sector_Size_Bytes> sector_buf_{};
 
   static constexpr uint8_t Busy_Mask = 0x01;
@@ -192,14 +192,14 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     return data_size <= (Total_Size_Bytes - addr);
   }
 
-  Ms<uint32_t> transferTimeout(std::size_t bytes) {
+  Us<uint32_t> transferTimeout(std::size_t bytes) {
     auto baud = spi_.getBaudrate().value();
     if (baud == 0) {
-      return Ms<uint32_t>{20};
+      return Us<uint32_t>{20'000};
     }
 
-    auto transfer_ms = static_cast<uint32_t>((bytes * 1000) / baud);
-    return Ms<uint32_t>{transfer_ms + 5};
+    auto transfer_us = static_cast<uint32_t>((bytes * 1'000'000) / baud);
+    return Us<uint32_t>{transfer_us + 5'000};
   }
 
   void csSelect() { cs_pin_.write(1); }
@@ -229,7 +229,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
 
     auto done = m::execWithTimeout(
         time_, [&]() { return spi_.readDone(); },
-        transferTimeout(data.size()) + Ms<uint32_t>{100});
+      transferTimeout(data.size()) + Us<uint32_t>{100'000});
     if (!done) {
       spi_.abortRead();
       return false;
@@ -265,7 +265,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     return true;
   }
 
-  bool waitWhileBusy(Ms<uint32_t> timeout) {
+  bool waitWhileBusy(Us<uint32_t> timeout) {
     bool io_ok = true;
     auto ready = m::execWithTimeout(
         time_,
@@ -328,7 +328,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
       return false;
     }
 
-    return waitWhileBusy(Ms<uint32_t>{10});
+    return waitWhileBusy(Us<uint32_t>{10'000});
   }
 
   bool writeSector4k(std::size_t addr, std::span<uint8_t const> data) {
@@ -369,7 +369,7 @@ class W25Q80DV : public m::ifc::IFlashMemory {
       return false;
     }
 
-    return waitWhileBusy(Ms<uint32_t>{500});
+    return waitWhileBusy(Us<uint32_t>{500'000});
   }
 };
 

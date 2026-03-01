@@ -16,8 +16,8 @@
 #include <IIO_Async.hpp>
 #include <IPin.hpp>
 #include <ITime.hpp>
-#include <Us.hpp>
 #include <Timeout.hpp>
+#include <Us.hpp>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -28,27 +28,32 @@ namespace m::ic {
 
 class W25Q80DV : public m::ifc::IFlashMemory {
  public:
-  static constexpr std::size_t Total_Size_Bytes = 1 * 1024 * 1024;
-  static constexpr std::size_t Sector_Size_Bytes = 4 * 1024;
-  static constexpr std::size_t Page_Size_Bytes = 256;
+  static constexpr uint8_t Jedec_Manufacturer_Winbond = 0xEF;
+  static constexpr uint8_t Jedec_Manufacturer_Puya = 0x85;
+  static constexpr uint8_t Jedec_MemoryType_Winbond = 0x40;
+  static constexpr uint8_t Jedec_Capacity_1M = 0x14;
+  static constexpr uint8_t Jedec_Capacity_16M = 0x18;
+
+  static constexpr std::size_t Total_Size_Bytes = 16U * 1024U * 1024U;
+  static constexpr std::size_t Sector_Size_Bytes = 4U * 1024U;
+  static constexpr std::size_t Page_Size_Bytes = 256U;
 
   W25Q80DV(m::ifc::IIO_Async<Bps<uint32_t>>& spi, m::ifc::mcu::IPin& cs_pin,
-       m::ifc::ITime<Us<uint32_t>>& time)
+           m::ifc::ITime<Us<uint32_t>>& time)
       : spi_(spi), cs_pin_(cs_pin), time_(time) {}
 
-  std::size_t size() override { return Total_Size_Bytes; }
+  std::size_t size() override { return total_size_bytes_; }
 
   bool erase(std::size_t addr, std::size_t erase_size) override {
-    if (erase_size == 0) {
+    if (erase_size == 0U) {
       return true;
     }
-    if (!isAddressValid(addr, erase_size)) {
+    if (!isRangeValid(addr, erase_size)) {
       return false;
     }
 
-    std::size_t start = addr & ~(Sector_Size_Bytes - 1);
-    std::size_t end =
-        (addr + erase_size + Sector_Size_Bytes - 1) & ~(Sector_Size_Bytes - 1);
+    std::size_t start = alignDown(addr, Sector_Size_Bytes);
+    std::size_t end = alignUp(addr + erase_size, Sector_Size_Bytes);
 
     for (std::size_t sector_addr = start; sector_addr < end;
          sector_addr += Sector_Size_Bytes) {
@@ -64,60 +69,33 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     if (data.empty()) {
       return true;
     }
-    if (!isAddressValid(addr, data.size())) {
+    if (!isRangeValid(addr, data.size())) {
       return false;
     }
 
-    std::size_t write_addr = addr;
-    auto write_data = data;
+    std::size_t src_offset = 0U;
+    while (src_offset < data.size()) {
+      std::size_t write_addr = addr + src_offset;
+      std::size_t sector_base = alignDown(write_addr, Sector_Size_Bytes);
+      std::size_t sector_offset = write_addr - sector_base;
+      std::size_t chunk_size =
+          std::min(Sector_Size_Bytes - sector_offset, data.size() - src_offset);
 
-    if ((write_addr & (Sector_Size_Bytes - 1)) != 0) {
-      auto sector_base = write_addr & ~(Sector_Size_Bytes - 1);
-      auto sector_offset = write_addr & (Sector_Size_Bytes - 1);
-      auto first_chunk =
-          std::min(Sector_Size_Bytes - sector_offset, write_data.size());
-
-      if (!readBytes(sector_base, std::span<uint8_t>{sector_buf_})) {
+      if (!readRaw(sector_base, std::span<uint8_t>{sector_buf_})) {
         return false;
       }
 
-      std::copy_n(write_data.data(), first_chunk,
+      std::copy_n(data.data() + src_offset, chunk_size,
                   sector_buf_.data() + sector_offset);
 
-      if (!eraseSector4k(sector_base) ||
-          !writeSector4k(sector_base, std::span<uint8_t const>{sector_buf_})) {
+      if (!eraseSector4k(sector_base)) {
+        return false;
+      }
+      if (!programSector4k(sector_base, std::span<uint8_t const>{sector_buf_})) {
         return false;
       }
 
-      write_addr += first_chunk;
-      write_data = write_data.subspan(first_chunk);
-    }
-
-    while (write_data.size() >= Sector_Size_Bytes) {
-      if (!eraseSector4k(write_addr) ||
-          !writeSector4k(write_addr, write_data.first(Sector_Size_Bytes))) {
-        return false;
-      }
-
-      write_addr += Sector_Size_Bytes;
-      write_data = write_data.subspan(Sector_Size_Bytes);
-    }
-
-    if (!write_data.empty()) {
-      auto sector_base = write_addr & ~(Sector_Size_Bytes - 1);
-      auto sector_offset = write_addr & (Sector_Size_Bytes - 1);
-
-      if (!readBytes(sector_base, std::span<uint8_t>{sector_buf_})) {
-        return false;
-      }
-
-      std::copy_n(write_data.data(), write_data.size(),
-                  sector_buf_.data() + sector_offset);
-
-      if (!eraseSector4k(sector_base) ||
-          !writeSector4k(sector_base, std::span<uint8_t const>{sector_buf_})) {
-        return false;
-      }
+      src_offset += chunk_size;
     }
 
     return true;
@@ -127,26 +105,33 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     if (data.empty()) {
       return true;
     }
-    if (!isAddressValid(addr, data.size())) {
+    if (!isRangeValid(addr, data.size())) {
       return false;
     }
 
-    return readBytes(addr, data);
+    return readRaw(addr, data);
   }
 
   bool probe() {
-    std::array<uint8_t, 1> cmd{static_cast<uint8_t>(Command::ReadJedecId)};
     std::array<uint8_t, 3> jedec{};
-
-    csSelect();
-    bool ok = tx(cmd) && rx(jedec);
-    csDeselect();
-
-    if (!ok) {
+    if (!readJedecId(jedec)) {
       return false;
     }
 
-    return jedec[0] == 0xEF && jedec[1] == 0x40 && jedec[2] == 0x14;
+    if ((jedec[0] == Jedec_Manufacturer_Puya) &&
+        (jedec[2] == Jedec_Capacity_16M)) {
+      total_size_bytes_ = 16U * 1024U * 1024U;
+      return true;
+    }
+
+    if ((jedec[0] == Jedec_Manufacturer_Winbond) &&
+        (jedec[1] == Jedec_MemoryType_Winbond) &&
+        (jedec[2] == Jedec_Capacity_1M)) {
+      total_size_bytes_ = 1U * 1024U * 1024U;
+      return true;
+    }
+
+    return false;
   }
 
   bool waitReady(Us<uint32_t> timeout) { return waitWhileBusy(timeout); }
@@ -159,61 +144,72 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     ReadStatus1 = 0x05,
     WriteEnable = 0x06,
     Erase4k = 0x20,
-    Erase32k = 0x52,
-    ChipErase60 = 0x60,
-    ChipEraseC7 = 0xC7,
-    Erase64k = 0xD8,
     ReadJedecId = 0x9F,
   };
+
+  static constexpr uint8_t Busy_Mask = 0x01;
+  static constexpr Us<uint32_t> Page_Program_Timeout{20'000};
+  static constexpr Us<uint32_t> Erase_4k_Timeout{500'000};
 
   m::ifc::IIO_Async<Bps<uint32_t>>& spi_;
   m::ifc::mcu::IPin& cs_pin_;
   m::ifc::ITime<Us<uint32_t>>& time_;
+  std::size_t total_size_bytes_ = Total_Size_Bytes;
   std::array<uint8_t, Sector_Size_Bytes> sector_buf_{};
 
-  static constexpr uint8_t Busy_Mask = 0x01;
-
-  static std::array<uint8_t, 4> makeAddrCommand(Command cmd, std::size_t addr) {
-    return {
-        static_cast<uint8_t>(cmd),
-        static_cast<uint8_t>((addr >> 16) & 0xFF),
-        static_cast<uint8_t>((addr >> 8) & 0xFF),
-        static_cast<uint8_t>(addr & 0xFF),
-    };
+  static std::size_t alignDown(std::size_t value, std::size_t align) {
+    return value & ~(align - 1U);
   }
 
-  bool isAddressValid(std::size_t addr, std::size_t data_size) const {
-    if (data_size == 0) {
+  static std::size_t alignUp(std::size_t value, std::size_t align) {
+    return (value + align - 1U) & ~(align - 1U);
+  }
+
+  bool isRangeValid(std::size_t addr, std::size_t size_bytes) const {
+    if (size_bytes == 0U) {
       return true;
     }
-    if (addr >= Total_Size_Bytes) {
+    if (addr >= total_size_bytes_) {
       return false;
     }
-    return data_size <= (Total_Size_Bytes - addr);
+    return size_bytes <= (total_size_bytes_ - addr);
   }
 
   Us<uint32_t> transferTimeout(std::size_t bytes) {
     auto baud = spi_.getBaudrate().value();
-    if (baud == 0) {
+    if (baud == 0U) {
       return Us<uint32_t>{20'000};
     }
 
-    auto transfer_us = static_cast<uint32_t>((bytes * 1'000'000) / baud);
-    return Us<uint32_t>{transfer_us + 5'000};
+    uint64_t bits = static_cast<uint64_t>(bytes) * 8ULL;
+    uint64_t us = (bits * 1'000'000ULL) / static_cast<uint64_t>(baud);
+    return Us<uint32_t>{static_cast<uint32_t>(us + 2'000ULL)};
   }
 
-  void csSelect() { cs_pin_.write(1); }
+  static std::array<uint8_t, 4> makeAddrCommand(Command cmd, std::size_t addr) {
+    return {
+        static_cast<uint8_t>(cmd),
+        static_cast<uint8_t>((addr >> 16U) & 0xFFU),
+        static_cast<uint8_t>((addr >> 8U) & 0xFFU),
+        static_cast<uint8_t>(addr & 0xFFU),
+    };
+  }
 
-  void csDeselect() { cs_pin_.write(0); }
+  void csSelect() { cs_pin_.write(true); }
+
+  void csDeselect() { cs_pin_.write(false); }
 
   bool tx(std::span<uint8_t const> data) {
+    if (data.empty()) {
+      return true;
+    }
+
     if (!spi_.writeAsync(data)) {
       return false;
     }
 
     auto done = m::execWithTimeout(
-        time_, [&]() { return spi_.writeDone(); },
-        transferTimeout(data.size()));
+        time_, [&]() { return spi_.writeDone(); }, transferTimeout(data.size()));
     if (!done) {
       spi_.abortWrite();
       return false;
@@ -223,19 +219,33 @@ class W25Q80DV : public m::ifc::IFlashMemory {
   }
 
   bool rx(std::span<uint8_t> data) {
+    if (data.empty()) {
+      return true;
+    }
+
     if (!spi_.readAsync(data)) {
       return false;
     }
 
     auto done = m::execWithTimeout(
         time_, [&]() { return spi_.readDone(); },
-      transferTimeout(data.size()) + Us<uint32_t>{100'000});
+        transferTimeout(data.size()) + Us<uint32_t>{5'000});
     if (!done) {
       spi_.abortRead();
       return false;
     }
 
     return !spi_.error();
+  }
+
+  bool readJedecId(std::span<uint8_t, 3> jedec) {
+    std::array<uint8_t, 1> cmd{static_cast<uint8_t>(Command::ReadJedecId)};
+
+    csSelect();
+    bool ok = tx(cmd) && rx(jedec);
+    csDeselect();
+
+    return ok;
   }
 
   bool setWriteEnable(bool enable) {
@@ -267,35 +277,27 @@ class W25Q80DV : public m::ifc::IFlashMemory {
 
   bool waitWhileBusy(Us<uint32_t> timeout) {
     bool io_ok = true;
-    auto ready = m::execWithTimeout(
+    bool ready = m::execWithTimeout(
         time_,
         [&]() {
           if (!io_ok) {
             return true;
           }
 
-          uint8_t status = 0;
+          uint8_t status = 0U;
           if (!readStatus1(status)) {
             io_ok = false;
             return true;
           }
 
-          return (status & Busy_Mask) == 0;
+          return (status & Busy_Mask) == 0U;
         },
         timeout);
 
-    if (!ready) {
-      return false;
-    }
-
-    if (!io_ok) {
-      return false;
-    }
-
-    return true;
+    return ready && io_ok;
   }
 
-  bool readBytes(std::size_t addr, std::span<uint8_t> data) {
+  bool readRaw(std::size_t addr, std::span<uint8_t> data) {
     auto cmd = makeAddrCommand(Command::ReadData, addr);
 
     csSelect();
@@ -305,53 +307,11 @@ class W25Q80DV : public m::ifc::IFlashMemory {
     return ok;
   }
 
-  bool programPage(std::size_t addr, std::span<uint8_t const> data) {
-    if (data.empty() || data.size() > Page_Size_Bytes) {
-      return false;
-    }
-    auto page_off = addr & (Page_Size_Bytes - 1);
-    if ((page_off + data.size()) > Page_Size_Bytes) {
-      return false;
-    }
-
-    if (!setWriteEnable(true)) {
-      return false;
-    }
-
-    auto cmd = makeAddrCommand(Command::PageProgram, addr);
-
-    csSelect();
-    bool ok = tx(cmd) && tx(data);
-    csDeselect();
-
-    if (!ok) {
-      return false;
-    }
-
-    return waitWhileBusy(Us<uint32_t>{10'000});
-  }
-
-  bool writeSector4k(std::size_t addr, std::span<uint8_t const> data) {
-    if ((addr & (Sector_Size_Bytes - 1)) != 0 ||
-        data.size() != Sector_Size_Bytes) {
-      return false;
-    }
-
-    for (std::size_t page = 0; page < (Sector_Size_Bytes / Page_Size_Bytes);
-         ++page) {
-      auto page_addr = addr + page * Page_Size_Bytes;
-      auto page_data = data.subspan(page * Page_Size_Bytes, Page_Size_Bytes);
-      if (!programPage(page_addr, page_data)) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
   bool eraseSector4k(std::size_t addr) {
-    if ((addr & (Sector_Size_Bytes - 1)) != 0 ||
-        !isAddressValid(addr, Sector_Size_Bytes)) {
+    if ((addr & (Sector_Size_Bytes - 1U)) != 0U) {
+      return false;
+    }
+    if (!isRangeValid(addr, Sector_Size_Bytes)) {
       return false;
     }
 
@@ -369,7 +329,54 @@ class W25Q80DV : public m::ifc::IFlashMemory {
       return false;
     }
 
-    return waitWhileBusy(Us<uint32_t>{500'000});
+    return waitWhileBusy(Erase_4k_Timeout);
+  }
+
+  bool programPage(std::size_t addr, std::span<uint8_t const> data) {
+    if (data.empty() || data.size() > Page_Size_Bytes) {
+      return false;
+    }
+
+    std::size_t page_offset = addr & (Page_Size_Bytes - 1U);
+    if ((page_offset + data.size()) > Page_Size_Bytes) {
+      return false;
+    }
+
+    if (!setWriteEnable(true)) {
+      return false;
+    }
+
+    auto cmd = makeAddrCommand(Command::PageProgram, addr);
+
+    csSelect();
+    bool ok = tx(cmd) && tx(data);
+    csDeselect();
+
+    if (!ok) {
+      return false;
+    }
+
+    return waitWhileBusy(Page_Program_Timeout);
+  }
+
+  bool programSector4k(std::size_t addr, std::span<uint8_t const> data) {
+    if ((addr & (Sector_Size_Bytes - 1U)) != 0U) {
+      return false;
+    }
+    if (data.size() != Sector_Size_Bytes) {
+      return false;
+    }
+
+    for (std::size_t page_idx = 0U; page_idx < (Sector_Size_Bytes / Page_Size_Bytes);
+         ++page_idx) {
+      std::size_t page_addr = addr + (page_idx * Page_Size_Bytes);
+      auto page_data = data.subspan(page_idx * Page_Size_Bytes, Page_Size_Bytes);
+      if (!programPage(page_addr, page_data)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 };
 

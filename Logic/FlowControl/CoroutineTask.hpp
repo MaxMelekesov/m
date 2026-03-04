@@ -16,7 +16,7 @@
 namespace m {
 
 template <typename ResultType = void>
-class CoroutineTask {
+class [[deprecated("use CoroScheduler instead")]] CoroutineTask {
  public:
   struct promise_type {
     ResultType result_ = ResultType{};
@@ -78,7 +78,7 @@ class CoroutineTask {
 };
 
 template <>
-class CoroutineTask<void> {
+class [[deprecated("use CoroScheduler instead")]] CoroutineTask<void> {
  public:
   struct promise_type {
     CoroutineTask get_return_object() {

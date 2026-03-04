@@ -39,7 +39,7 @@ class IState {
   friend Fsm;
 };
 
-class Fsm {
+class [[deprecated("use Fsm_v4 instead")]] Fsm {
  public:
   Fsm(IState* state) : state_(state) {}
 

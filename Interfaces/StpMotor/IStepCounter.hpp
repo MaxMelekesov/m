@@ -29,14 +29,14 @@ class IStepCounter {
   enum class Dir : uint8_t { Up = 0, Down };
   enum class DirInversion : uint8_t { No = 0, Yes };
 
-  virtual bool setDirection(Dir dir) = 0;
+  virtual void setDirection(Dir dir) = 0;
   virtual Dir getDirection() = 0;
 
-  virtual bool setDirectionInversion(DirInversion inv) = 0;
+  virtual void setDirectionInversion(DirInversion inv) = 0;
   virtual DirInversion getDirectionInversion() = 0;
 
   virtual int32_t getCount() = 0;
-  virtual bool setCount(int32_t cnt) = 0;
+  virtual void setCount(int32_t cnt) = 0;
 };
 
 template <typename T>
@@ -45,12 +45,12 @@ concept CStepCounter = requires(T counter, typename T::Dir dir,
   { counter.start() } -> std::same_as<bool>;
   { counter.stop() } -> std::same_as<bool>;
   { counter.running() } -> std::same_as<bool>;
-  { counter.setDirection(dir) } -> std::same_as<bool>;
+  { counter.setDirection(dir) } -> std::same_as<void>;
   { counter.getDirection() } -> std::same_as<typename T::Dir>;
-  { counter.setDirectionInversion(inv) } -> std::same_as<bool>;
+  { counter.setDirectionInversion(inv) } -> std::same_as<void>;
   { counter.getDirectionInversion() } -> std::same_as<typename T::DirInversion>;
   { counter.getCount() } -> std::same_as<int32_t>;
-  { counter.setCount(cnt) } -> std::same_as<bool>;
+  { counter.setCount(cnt) } -> std::same_as<void>;
 };
 
 static_assert(CStepCounter<IStepCounter>,

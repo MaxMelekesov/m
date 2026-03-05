@@ -36,25 +36,25 @@ class IStepDriver {
 
   virtual ~IStepDriver() {}
 
-  virtual bool setEnable(bool value) = 0;
+  virtual void setEnable(bool value) = 0;
   virtual bool getEnable() = 0;
 
-  virtual bool setSleep(bool value) = 0;
+  virtual void setSleep(bool value) = 0;
   virtual bool getSleep() = 0;
 
-  virtual bool setReset(bool value) = 0;
+  virtual void setReset(bool value) = 0;
   virtual bool getReset() = 0;
 
-  virtual bool setDirection(Dir dir) = 0;
+  virtual void setDirection(Dir dir) = 0;
   virtual Dir getDirection() = 0;
 
-  virtual bool setDirectionInversion(DirInversion inv) = 0;
+  virtual void setDirectionInversion(DirInversion inv) = 0;
   virtual DirInversion getDirectionInversion() = 0;
 
-  virtual bool setMicrostep(Microstep m) = 0;
+  virtual void setMicrostep(Microstep m) = 0;
   virtual Microstep getMicrostep() = 0;
 
-  virtual bool setCurrent(mAT ma) = 0;
+  virtual void setCurrent(mAT ma) = 0;
   virtual mAT getCurrent() = 0;
 };
 
@@ -62,24 +62,24 @@ template <typename T>
 concept CStepDriver =
     requires(T ctrl, bool b, typename T::Dir dir, typename T::DirInversion inv,
              typename T::Microstep ms) {
-      { ctrl.setEnable(b) } -> std::same_as<bool>;
+      { ctrl.setEnable(b) } -> std::same_as<void>;
       { ctrl.getEnable() } -> std::same_as<bool>;
-      { ctrl.setSleep(b) } -> std::same_as<bool>;
+      { ctrl.setSleep(b) } -> std::same_as<void>;
       { ctrl.getSleep() } -> std::same_as<bool>;
-      { ctrl.setReset(b) } -> std::same_as<bool>;
+      { ctrl.setReset(b) } -> std::same_as<void>;
       { ctrl.getReset() } -> std::same_as<bool>;
-      { ctrl.setDirection(dir) } -> std::same_as<bool>;
+      { ctrl.setDirection(dir) } -> std::same_as<void>;
       { ctrl.getDirection() } -> std::same_as<typename T::Dir>;
-      { ctrl.setDirectionInversion(inv) } -> std::same_as<bool>;
+      { ctrl.setDirectionInversion(inv) } -> std::same_as<void>;
       {
         ctrl.getDirectionInversion()
       } -> std::same_as<typename T::DirInversion>;
-      { ctrl.setMicrostep(ms) } -> std::same_as<bool>;
+      { ctrl.setMicrostep(ms) } -> std::same_as<void>;
       { ctrl.getMicrostep() } -> std::same_as<typename T::Microstep>;
       requires CmA<std::remove_cvref_t<decltype(ctrl.getCurrent())>>;
       requires requires(
           typename std::remove_cvref_t<decltype(ctrl.getCurrent())> ma) {
-        { ctrl.setCurrent(ma) } -> std::same_as<bool>;
+        { ctrl.setCurrent(ma) } -> std::same_as<void>;
       };
     };
 

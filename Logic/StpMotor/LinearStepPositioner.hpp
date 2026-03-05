@@ -13,6 +13,7 @@
 #include <CoroDelay.hpp>
 #include <CoroMutex.hpp>
 #include <CoroScheduler.hpp>
+#include <FinalAction.hpp>
 #include <IStepCounter.hpp>
 #include <IStepDriver.hpp>
 #include <IStepGen.hpp>
@@ -35,6 +36,7 @@ class LinearStepPositioner {
   LinearStepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
                        StepGenT& gen)
       : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
+    ctr_.setCount(0);
     gen_.setCallback([&]() -> StepT { return nextStep(); });
   }
 
@@ -44,9 +46,6 @@ class LinearStepPositioner {
 
   m::Task<bool> startMove(int32_t steps) {
     co_await mutex_.lock();
-
-    target_position_ += steps;
-    pending_steps_.fetch_add(steps, std::memory_order_relaxed);
 
     if (!ctr_.running()) {
       if (!ctr_.start()) co_return false;
@@ -60,18 +59,28 @@ class LinearStepPositioner {
     if (!gen_.running()) {
       if (!gen_.start()) co_return false;
     }
+
+    pending_steps_.fetch_add(steps, std::memory_order_relaxed);
+
     co_return true;
   }
 
   m::Task<bool> startMoveTo(int32_t pos) {
-
-    //TODO atrget pos & counter pos & moving
-    co_await mutex_.lock();
-    co_return true;
+    if (moving()) co_return false;
+    auto current = ctr_.getCount();
+    auto res = co_await startMove(pos - current);
+    co_return res;
   }
 
-  bool softStop() { return true; }
-  bool emgStop() { return gen_.stop(); }
+  bool softStop() {
+    pending_steps_.store(0, std::memory_order_relaxed);
+    return true;
+  }
+  bool emgStop() {
+    bool res = gen_.stop();
+    pending_steps_.store(0, std::memory_order_relaxed);
+    return res;
+  }
 
   void setSpeed(uint32_t value) { speed_ = value; }
   uint32_t getSpeed() const { return speed_; }
@@ -95,7 +104,6 @@ class LinearStepPositioner {
   MsT driver_en_delay_{10};
   MsT stop_delay_{100};
 
-  int32_t target_position_{0};
   std::atomic<int32_t> pending_steps_{0};
 
   MsT stop_counter_{0};
@@ -112,6 +120,9 @@ class LinearStepPositioner {
 
   StepT nextStep() {
     auto pending = pending_steps_.exchange(0, std::memory_order_relaxed);
+
+    auto update_pending = m::finally(
+        [&] { pending_steps_.fetch_add(pending, std::memory_order_relaxed); });
 
     switch (state_) {
       case State::Idle: {
@@ -150,13 +161,14 @@ class LinearStepPositioner {
               .freq = 1'000, .steps = stop_delay_.value(), .dummy = true};
         }
 
-        int32_t steps =
-            std::min(pending, static_cast<int32_t>(gen_.maxSteps()));
-        steps = std::min(steps, static_cast<int32_t>(sT(Time_Step_)));
+        uint32_t steps = std::min(abs_u32(pending), gen_.maxSteps());
+        steps = std::min(steps, sT(Time_Step_));
+        int32_t delta = (pending > 0) ? static_cast<int32_t>(steps)
+                                      : -static_cast<int32_t>(steps);
+        pending -= delta;
 
-        pending_steps_.fetch_add(pending - steps, std::memory_order_relaxed);
         return StepT{.freq = speed_,
-                     .steps = static_cast<uint32_t>(std::abs(steps)),
+                     .steps = static_cast<uint32_t>(steps),
                      .dummy = false};
       } break;
       case State::Stop: {
@@ -190,6 +202,7 @@ class LinearStepPositioner {
           return StepT{
               .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
         }
+        drv_.setEnable(0);
         gen_.stop();
         state_ = State::Idle;
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
@@ -203,8 +216,12 @@ class LinearStepPositioner {
   }
 
   uint32_t sT(MsT ms) {
-    auto steps = static_cast<uint32_t>(ms.value() * ((speed_ / 1'000) + 1));
+    auto steps = ms.value() * ((speed_ / 1'000) + 1);
     return steps;
+  }
+  constexpr uint32_t abs_u32(int32_t x) {
+    const uint32_t ux = static_cast<uint32_t>(x);
+    return (x < 0) ? (0u - ux) : ux;
   }
 };
 

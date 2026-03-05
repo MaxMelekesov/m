@@ -73,12 +73,14 @@ class LinearStepPositioner {
   }
 
   bool softStop() {
+    pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
     pending_steps_.store(0, std::memory_order_relaxed);
     return true;
   }
   bool emgStop() {
-    bool res = gen_.stop();
+    pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
     pending_steps_.store(0, std::memory_order_relaxed);
+    bool res = gen_.stop();
     return res;
   }
 
@@ -105,6 +107,7 @@ class LinearStepPositioner {
   MsT stop_delay_{100};
 
   std::atomic<int32_t> pending_steps_{0};
+  std::atomic<uint32_t> pending_epoch_{0};
 
   MsT stop_counter_{0};
 
@@ -119,10 +122,15 @@ class LinearStepPositioner {
   State state_ = State::Idle;
 
   StepT nextStep() {
+    const auto pending_epoch = pending_epoch_.load(std::memory_order_acquire);
     auto pending = pending_steps_.exchange(0, std::memory_order_relaxed);
 
-    auto update_pending = m::finally(
-        [&] { pending_steps_.fetch_add(pending, std::memory_order_relaxed); });
+    auto update_pending = m::finally([&] {
+      if (pending == 0) return;
+      if (pending_epoch_.load(std::memory_order_acquire) != pending_epoch)
+        return;
+      pending_steps_.fetch_add(pending, std::memory_order_relaxed);
+    });
 
     switch (state_) {
       case State::Idle: {

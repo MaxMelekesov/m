@@ -49,6 +49,8 @@ class CoroMutex {
 
   CoroMutex() = default;
 
+  [[nodiscard]] bool isLocked() const { return locked_; }
+
   [[nodiscard]] auto lock() -> Task<Guard> {
     while (locked_) {
       co_await coroYield();

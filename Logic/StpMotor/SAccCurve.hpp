@@ -51,7 +51,6 @@ class SAccCurve {
   Ms<uint32_t> getAccT() { return acc_t_; }
 
   float vt(Ms<uint32_t> t) {
-    if (t > acc_t_) return 0.0f;
     float t_div_max_t =
         static_cast<float>(t.value()) / static_cast<float>(acc_t_.value());
     float t3 = t_div_max_t * (min_v_ - max_v_) * t_div_max_t * t_div_max_t;
@@ -63,10 +62,13 @@ class SAccCurve {
     return temp;
   }
 
+  // TODO: add Horner's method
   float st(Ms<uint32_t> t) {
-    // TODO: add cache
-    if (t > acc_t_) return 0.0f;
-
+    for (auto i = 0u; i < static_cast<uint32_t>(cache_key_.size()); ++i) {
+      if (cache_key_[i] == t) {
+        return cache_[i];
+      }
+    }
     float t_div_max_t =
         static_cast<float>(t.value()) / static_cast<float>(acc_t_.value());
     float t3 = t_div_max_t * (min_v_ - max_v_) * t_div_max_t *
@@ -76,6 +78,10 @@ class SAccCurve {
 
     float temp = min_v_ * static_cast<float>(t.value()) / 1'000.0f - t5 +
                  3.0f * t4 - 5.0f * t3;
+
+    cache_key_[cache_index_] = t;
+    cache_[cache_index_] = temp;
+    cache_index_ = (cache_index_ + 1) % cache_key_.size();
 
     return temp;
   };
@@ -91,8 +97,11 @@ class SAccCurve {
 
   bool update_cache_ = true;
 
-  std::array<Ms<uint32_t>, 4> cache_key_;
-  std::array<float, 4> cache_;
+  uint32_t cache_index_{0};
+  std::array<Ms<uint32_t>, 2> cache_key_{
+      Ms<uint32_t>{std::numeric_limits<uint32_t>::max()},
+      Ms<uint32_t>{std::numeric_limits<uint32_t>::max()}};
+  std::array<float, 2> cache_;
 };
 }  // namespace m
 

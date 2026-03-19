@@ -10,317 +10,259 @@
 
 #ifndef STEP_POSITIONER_HPP
 #define STEP_POSITIONER_HPP
-#include <DebugLogger.hpp>
-#include <Fsm_v4.hpp>
+#include <CoroDelay.hpp>
+#include <CoroMutex.hpp>
+#include <CoroScheduler.hpp>
+#include <FinalAction.hpp>
 #include <IStepCounter.hpp>
-#include <IStepDriverCtrl.hpp>
+#include <IStepDriver.hpp>
 #include <IStepGen.hpp>
 #include <ITime.hpp>
 #include <Ms.hpp>
 #include <SAccCurve.hpp>
-#include <StpPositionerSettings.hpp>
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <optional>
+#include <utility>
 
 namespace m {
 
-template <typename TimeT>
-  requires m::ifc::CMs<typename TimeT::UnitT> &&
-           m::ifc::CTime<TimeT, typename TimeT::UnitT>
+template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
 class StepPositioner {
  private:
-  using DrvT = m::ifc::IStepDriverCtrl<mA<uint32_t>>;
-  using CtrT = m::ifc::IStepCounter;
-  using GenT = m::ifc::IStepGen;
+  using MsT = decltype(std::declval<TimeMsT&>().getTick());
+  using StepT = typename StepGenT::Step;
 
  public:
-  StepPositioner(TimeT& time, DrvT& drv, CtrT& ctr, GenT& gen)
+  StepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
+                 StepGenT& gen)
       : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
-    gen_.setCallback([&]() {
-      while (1) {
-        loader_.handle();
-        if (loader_.done()) {
-          return GenT::Step{.freq = 0, .steps = 0};
-        }
-        if (auto part = loader_.nextPart(); part) {
-          auto [v, steps] = part.value();
-
-          return GenT::Step{.freq = v, .steps = steps};
-        }
-      }
-    });
-
-    ac_.setAccT(Ms<uint32_t>{400});
-    ac_.setMinV(1'000);
-    ac_.setMaxV(7'000);
+    ctr_.setCount(0);
+    gen_.setCallback([&]() -> StepT { return nextStep(); });
   }
+
+  ~StepPositioner() { emgStop(); }
 
   bool moving() { return gen_.running(); }
 
-  void handle() {
-    if (!moving()) {
-      drv_.setEnable(0);
+  m::Task<bool> startMove(int32_t steps) {
+    co_await mutex_.lock();
+
+    if (!ctr_.running()) {
+      if (!ctr_.start()) co_return false;
     }
+
+    if (!drv_.getEnable()) {
+      drv_.setEnable(1);
+      co_await m::coroDelay(time_, driver_en_delay_);
+    }
+
+    if (!gen_.running()) {
+      if (!gen_.start()) co_return false;
+    }
+
+    target_pos_.fetch_add(steps, std::memory_order_relaxed);
+
+    co_return true;
   }
 
-  bool addSteps(int32_t steps) {
-    if (steps == 0) return true;
+  m::Task<bool> startMoveTo(int32_t pos) {
+    if (moving()) co_return false;
+    auto current = ctr_.getCount();
+    auto res = co_await startMove(pos - current);
+    co_return res;
+  }
 
-    if (steps > 0) {
-      drv_.setDirection(DrvT::Dir::Forward);
-      ctr_.setDirection(CtrT::Dir::Up);
-    } else {
-      drv_.setDirection(DrvT::Dir::Backward);
-      ctr_.setDirection(CtrT::Dir::Down);
-    }
-
-    loader_.addSteps(steps);
-
-    drv_.setMicrostep(DrvT::Microstep::M_8);
-    drv_.setEnable(1);
-    time_.delay(Ms<uint32_t>{10});
-
-    if (!ctr_.start()) return false;
-    if (!gen_.start()) return false;
-
+  bool softStop() {
+    pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
+    target_pos_.store(0, std::memory_order_relaxed);
     return true;
   }
+  bool emgStop() {
+    pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
+    target_pos_.store(0, std::memory_order_relaxed);
+    bool res = gen_.stop();
+    return res;
+  }
+
+  SAccCurve& getAccCurve() { return acc_curve_; }
+
+  void setAutohold(bool value) { autohold_ = value; }
+  bool getAutohold() { return autohold_; }
+
+  void setStopDelay(MsT ms) { stop_delay_ = ms; }
+  MsT getStopDelay() const { return stop_delay_; }
 
  private:
-  TimeT& time_;
-  DrvT& drv_;
-  CtrT& ctr_;
-  GenT& gen_;
+  TimeMsT& time_;
+  StepDriverT& drv_;
+  StepCounterT& ctr_;
+  StepGenT& gen_;
 
-  bool dir_ = true;  // true - forward
+  CoroMutex mutex_;
 
-  SAccCurve ac_{Ms<uint32_t>{5'000}, 100, 80'000};
-  StpPositionerSettings st_;
+  SAccCurve acc_curve_{MsT{250}, 1'000, 5'000};
+  bool autohold_ = false;
+  MsT driver_en_delay_{10};
+  MsT stop_delay_{100};
 
-  struct Idle : public m::State {};
-  struct Check : public m::State {};
-  struct Acc : public m::State {};
-  struct Linear : public m::State {};
-  struct Deacc : public m::State {};
+  std::atomic<int32_t> target_pos_{0};
+  std::atomic<uint32_t> pending_epoch_{0};
 
-  struct StepsAdded : public m::Event {};
-  struct Start : public m::Event {};
-  struct Calc : public m::Event {};
-  struct Done : public m::Event {};
+  MsT t_{0};
+  int32_t loaded_pos_{0};
+  uint32_t speed_{0};
+  uint32_t steps_to_load_{0};
 
-  class StepsLoader
-      : public m::Fsm_v4<
-            StepsLoader, Idle, m::Transition<Idle, StepsAdded, Check>,
+  MsT stop_counter_{0};
 
-            m::Transition<Check, Done, Idle>, m::Transition<Check, Start, Acc>,
+  static constexpr MsT Time_Step_{1};
 
-            m::Transition<Acc, StepsAdded, Acc>,
-            m::Transition<Acc, Done, Linear>, m::Transition<Acc, Calc, Acc>,
-
-            m::Transition<Linear, StepsAdded, Linear>,
-            m::Transition<Linear, Done, Deacc>,
-            m::Transition<Linear, Calc, Linear>,
-
-            m::Transition<Deacc, StepsAdded, Deacc>,
-            m::Transition<Deacc, Done, Check>, m::Transition<Deacc, Calc, Deacc>
-
-            > {
-   public:
-    StepsLoader(SAccCurve& ac) : ac_(ac) {}
-
-    void handle() { this->checkEvents(); }
-
-    int32_t addSteps(int32_t value) {
-      if (value >= 0) {
-        delta_steps_ = value;
-        return value;
-      } else {
-        uint32_t deacc_steps = std::roundf(ac_.st(v_index_));
-        uint32_t temp = target_steps_ - deacc_steps;
-        delta_steps_ = -std::min(temp, static_cast<uint32_t>(std::abs(value)));
-
-        return delta_steps_;
-      }
-    }
-
-    bool done() {
-      return this->template isInState<Idle>() && target_steps_ == 0 &&
-             delta_steps_ == 0;
-    }
-
-    struct Part {
-      uint32_t v;
-      uint32_t steps;
-    };
-
-    std::optional<Part> nextPart() {
-      auto temp = part_;
-      part_ = std::nullopt;
-      return temp;
-    }
-
-   private:
-    SAccCurve& ac_;
-
-    uint32_t target_steps_ = 0;
-    int32_t delta_steps_ = 0;
-
-    Ms<uint32_t> v_index_{0};
-    Ms<uint32_t> next_v_index_{0};
-
-    Ms<uint32_t> linear_dt_{0};
-    uint32_t steps_remainder_ = 0;
-
-    std::optional<Part> part_;
-
-    // Idle
-    bool checkEvent(Idle, StepsAdded) { return delta_steps_ != 0; }
-    void handleEvent(Idle, StepsAdded) {
-      target_steps_ = 0;
-      target_steps_ += delta_steps_;
-      delta_steps_ = 0;
-
-      v_index_ = Ms<uint32_t>{0};
-      next_v_index_ = Ms<uint32_t>{0};
-    }
-
-    // Check
-    bool checkEvent(Check, Done) { return target_steps_ == 0; }
-    void handleEvent(Check, Done) {}
-
-    bool checkEvent(Check, Start) { return true; }
-    void handleEvent(Check, Start) {}
-
-    // Acc
-    bool checkEvent(Acc, StepsAdded) { return delta_steps_ != 0; }
-    void handleEvent(Acc, StepsAdded) {
-      target_steps_ += delta_steps_;
-      delta_steps_ = 0;
-    }
-
-    bool checkEvent(Acc, Done) {
-      if (v_index_ == ac_.getAccT()) return true;
-      if (next_v_index_ == ac_.getAccT()) return true;
-      ++next_v_index_;
-      uint32_t deacc_steps = std::roundf(ac_.st(next_v_index_));
-      return deacc_steps > target_steps_;
-    }
-    void handleEvent(Acc, Done) {
-      linear_dt_ = Ms<uint32_t>{0};
-      next_v_index_ = v_index_;
-    }
-
-    bool checkEvent(Acc, Calc) {
-      uint32_t prev = std::roundf(ac_.st(v_index_));
-      uint32_t next = std::roundf(ac_.st(next_v_index_));
-      uint32_t steps = next - prev;
-
-      if (steps > 0) {
-        v_index_ = next_v_index_;
-        uint32_t v = std::roundf(ac_.vt(v_index_));
-        part_ = Part{.v = v, .steps = steps};
-        return true;
-      }
-
-      return false;
-    }
-    void handleEvent(Acc, Calc) { target_steps_ -= part_.value().steps; }
-
-    // Linear
-    bool checkEvent(Linear, StepsAdded) { return delta_steps_ != 0; }
-    void handleEvent(Linear, StepsAdded) {
-      target_steps_ += delta_steps_;
-      delta_steps_ = 0;
-    }
-
-    bool checkEvent(Linear, Done) {
-      if (v_index_ != ac_.getAccT()) return true;
-
-      uint32_t deacc_steps = std::roundf(ac_.st(ac_.getAccT()));
-      ++linear_dt_;
-      uint32_t steps = std::floorf(
-          static_cast<float>(ac_.getMaxV() * linear_dt_.value()) / 1'000.0f);
-      return target_steps_ < deacc_steps + steps;
-    }
-    void handleEvent(Linear, Done) {
-      uint32_t deacc_steps = std::roundf(ac_.st(ac_.getAccT()));
-      if (target_steps_ > deacc_steps) {
-        steps_remainder_ = target_steps_ - deacc_steps;
-      }
-    }
-
-    bool checkEvent(Linear, Calc) {
-      uint32_t steps = std::floorf(
-          static_cast<float>(ac_.getMaxV() * linear_dt_.value()) / 1'000.0f);
-
-      if (steps > 0) {
-        linear_dt_ = Ms<uint32_t>{0};
-        uint32_t v = static_cast<uint32_t>(ac_.getMaxV());
-        part_ = Part{.v = v, .steps = steps};
-        return true;
-      }
-
-      return false;
-    }
-    void handleEvent(Linear, Calc) { target_steps_ -= part_.value().steps; }
-
-    // Deacc
-    bool checkEvent(Deacc, StepsAdded) { return delta_steps_ != 0; }
-    void handleEvent(Deacc, StepsAdded) {
-      target_steps_ += delta_steps_;
-      delta_steps_ = 0;
-    }
-
-    bool checkEvent(Deacc, Done) {
-      if (target_steps_ == 0) return true;
-      if (next_v_index_ > Ms<uint32_t>{0}) {
-        --next_v_index_;
-      } else {
-        steps_remainder_ = target_steps_;
-      }
-      return false;
-    }
-    void handleEvent(Deacc, Done) {}
-
-    bool checkEvent(Deacc, Calc) {
-      uint32_t prev = std::roundf(ac_.st(v_index_));
-      uint32_t next = std::roundf(ac_.st(next_v_index_));
-      uint32_t steps = prev - next + steps_remainder_;
-
-      if (steps_remainder_) {
-        steps_remainder_ = 0;
-      }
-
-      if (steps > 0) {
-        uint32_t v = std::roundf(ac_.vt(next_v_index_));
-        v_index_ = next_v_index_;
-
-        part_ = Part{.v = v, .steps = steps};
-        return true;
-      }
-
-      return false;
-    }
-    void handleEvent(Deacc, Calc) { target_steps_ -= part_.value().steps; }
-
-    friend class m::Fsm_v4<
-        StepsLoader, Idle, m::Transition<Idle, StepsAdded, Check>,
-
-        m::Transition<Check, Done, Idle>, m::Transition<Check, Start, Acc>,
-
-        m::Transition<Acc, StepsAdded, Acc>, m::Transition<Acc, Done, Linear>,
-        m::Transition<Acc, Calc, Acc>,
-
-        m::Transition<Linear, StepsAdded, Linear>,
-        m::Transition<Linear, Done, Deacc>, m::Transition<Linear, Calc, Linear>,
-
-        m::Transition<Deacc, StepsAdded, Deacc>,
-        m::Transition<Deacc, Done, Check>, m::Transition<Deacc, Calc, Deacc>>;
+  enum class State : uint8_t {
+    Idle,
+    Acc,
+    LoadAcc,
+    Deacc,
+    LoadDeacc,
+    Stop,
+    WaitStop,
   };
+  State state_ = State::Idle;
 
-  StepsLoader loader_{ac_};
+  StepT nextStep() {
+    const auto pending_epoch = pending_epoch_.load(std::memory_order_acquire);
+    auto taget = target_pos_.load(std::memory_order_acquire);
+
+    int32_t diff = taget - loaded_pos_;
+
+    // auto update_pending = m::finally([&] {
+    //   if (pending == 0) return;
+    //   if (pending_epoch_.load(std::memory_order_acquire) != pending_epoch)
+    //     return;
+    //   target_pos_.fetch_add(pending, std::memory_order_relaxed);
+    // });
+
+    return fsm(diff);
+  }
+
+  StepT fsm(int32_t diff) {
+    switch (state_) {
+      case State::Idle: {
+        if (diff == 0) {
+          state_ = State::Stop;
+          stop_counter_ = MsT{2};
+          return StepT{
+              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+        }
+
+        if (diff > 0) {
+          drv_.setDirection(StepDriverT::Dir::Forward);
+          ctr_.setDirection(StepCounterT::Dir::Up);
+        } else {
+          drv_.setDirection(StepDriverT::Dir::Backward);
+          ctr_.setDirection(StepCounterT::Dir::Down);
+        }
+
+        state_ = State::Acc;
+        return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+      } break;
+      case State::Acc: {
+        uint32_t st = std::ceilf(acc_curve_.st(t_));
+        if (abs_u32(diff) <= st || dirChanged(diff)) {
+          state_ = State::Deacc;
+          return fsm(diff);
+        }
+
+        if (t_ != acc_curve_.getAccT()) {
+          t_ += Time_Step_;
+        }
+
+        speed_ = std::ceilf(acc_curve_.vt(t_));
+        uint32_t st_new = std::ceilf(acc_curve_.st(t_));
+        if (abs_u32(diff) <= st_new) {
+          state_ = State::Deacc;
+          return fsm(diff);
+        }
+        steps_to_load_ = st_new - st;
+
+        state_ = State::LoadAcc;
+        return fsm(diff);
+      } break;
+      case State::LoadAcc: {
+        uint32_t steps = 0;
+        if (steps_to_load_ > gen_.maxSteps() &&
+            steps_to_load_ < gen_.maxSteps() * 2) {
+          steps = steps_to_load_ / 2;
+        } else {
+          steps = std::min(steps_to_load_, gen_.maxSteps());
+        }
+        steps_to_load_ -= steps;
+        loaded_pos_ +=
+            (drv_.getDirection() == StepDriverT::Dir::Forward) ? steps : -steps;
+        state_ = State::Acc;
+        return StepT{.freq = speed_, .steps = steps, .dummy = false};
+      } break;
+
+      case State::Stop: {
+        if (pending != 0) {
+          state_ = State::Idle;
+          return StepT{
+              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+        }
+
+        if (stop_counter_ > MsT{0}) {
+          --stop_counter_;
+          return StepT{
+              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+        } else {
+          if (autohold_) {
+            gen_.stop();
+            state_ = State::Idle;
+            return StepT{
+                .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+          } else {
+            state_ = State::WaitStop;
+            return StepT{.freq = 1'000,
+                         .steps = driver_en_delay_.value(),
+                         .dummy = true};
+          }
+        }
+      } break;
+      case State::WaitStop: {
+        if (pending != 0) {
+          state_ = State::Idle;
+          return StepT{
+              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+        }
+        drv_.setEnable(0);
+        gen_.stop();
+        state_ = State::Idle;
+        return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+      } break;
+      default: {
+        gen_.stop();
+        state_ = State::Idle;
+        return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+      } break;
+    }
+  }
+
+  bool dirChanged(int32_t diff) {
+    return (diff > 0 && drv_.getDirection() == StepDriverT::Dir::Backward) ||
+           (diff < 0 && drv_.getDirection() == StepDriverT::Dir::Forward);
+  }
+
+  constexpr uint32_t abs_u32(int32_t x) {
+    const uint32_t ux = static_cast<uint32_t>(x);
+    return (x < 0) ? (0u - ux) : ux;
+  }
 };
+template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
+StepPositioner(TimeMsT&, StepDriverT&, StepCounterT&, StepGenT&)
+    -> StepPositioner<TimeMsT, StepDriverT, StepCounterT, StepGenT>;
 }  // namespace m
 
 #endif  // STEP_POSITIONER_HPP

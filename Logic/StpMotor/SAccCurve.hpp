@@ -11,8 +11,6 @@
 #ifndef S_ACC_CURVE_HPP
 #define S_ACC_CURVE_HPP
 #include <Ms.hpp>
-#include <array>
-#include <cmath>
 #include <cstdint>
 
 namespace m {
@@ -28,7 +26,6 @@ class SAccCurve {
   bool setMinV(float value) {
     if (value < Min_V_Limit_ || value >= max_v_) return false;
     min_v_ = value;
-    update_cache_ = true;
     return true;
   }
   float getMinV() const { return min_v_; }
@@ -36,16 +33,13 @@ class SAccCurve {
   bool setMaxV(float value) {
     if (value <= min_v_ || value > Max_V_Limit_) return false;
     max_v_ = value;
-    update_cache_ = true;
     return true;
   }
   float getMaxV() const { return max_v_; }
 
   bool setAccT(Ms<uint32_t> ms) {
     if (ms < Ms<uint32_t>{10} || ms > Acc_T_Limit_) return false;
-
     acc_t_ = ms;
-    update_cache_ = true;
     return true;
   }
   Ms<uint32_t> getAccT() { return acc_t_; }
@@ -62,13 +56,7 @@ class SAccCurve {
     return temp;
   }
 
-  // TODO: add Horner's method
   float st(Ms<uint32_t> t) {
-    for (auto i = 0u; i < static_cast<uint32_t>(cache_key_.size()); ++i) {
-      if (cache_key_[i] == t) {
-        return cache_[i];
-      }
-    }
     float t_div_max_t =
         static_cast<float>(t.value()) / static_cast<float>(acc_t_.value());
     float t3 = t_div_max_t * (min_v_ - max_v_) * t_div_max_t *
@@ -78,10 +66,6 @@ class SAccCurve {
 
     float temp = min_v_ * static_cast<float>(t.value()) / 1'000.0f - t5 +
                  3.0f * t4 - 5.0f * t3;
-
-    cache_key_[cache_index_] = t;
-    cache_[cache_index_] = temp;
-    cache_index_ = (cache_index_ + 1) % cache_key_.size();
 
     return temp;
   };
@@ -94,14 +78,6 @@ class SAccCurve {
   float min_v_ = Min_V_Limit_;
   float max_v_ = Max_V_Limit_;
   Ms<uint32_t> acc_t_ = Acc_T_Limit_;
-
-  bool update_cache_ = true;
-
-  uint32_t cache_index_{0};
-  std::array<Ms<uint32_t>, 2> cache_key_{
-      Ms<uint32_t>{std::numeric_limits<uint32_t>::max()},
-      Ms<uint32_t>{std::numeric_limits<uint32_t>::max()}};
-  std::array<float, 2> cache_;
 };
 }  // namespace m
 

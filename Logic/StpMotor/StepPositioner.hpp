@@ -103,7 +103,7 @@ class StepPositioner {
 
   CoroMutex mutex_;
 
-  SAccCurve acc_curve_{MsT{250}, 2'000, 20'000};
+  SAccCurve acc_curve_{MsT{250}, 4'000, 15'000};
   bool autohold_ = false;
   MsT driver_en_delay_{10};
   MsT stop_delay_{100};
@@ -117,6 +117,10 @@ class StepPositioner {
   uint32_t steps_to_load_{0};
 
   MsT stop_counter_{0};
+
+  uint32_t last_st_{0};
+  float step_acc_{0.0f};
+  uint32_t next_deacc_speed_{0};
 
   static constexpr MsT Time_Step_{1};
 
@@ -166,129 +170,107 @@ class StepPositioner {
           ctr_.setDirection(StepCounterT::Dir::Down);
         }
 
+        last_st_ = 0;
+        step_acc_ = 0.0f;
         state_ = State::Acc;
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
       } break;
       case State::Acc: {
-        uint32_t st = std::roundf(acc_curve_.st(t_));
-        if (abs_u32(diff) <= st || dirChanged(diff)) {
-          state_ = State::Deacc;
-          return fsm(target);
-        }
+        uint32_t speed = std::roundf(acc_curve_.vt(t_));
+        uint32_t predicted_timestep = std::ceilf(1'000.0f / speed);
+        MsT timestep = std::max(MsT{predicted_timestep}, Time_Step_);
+        MsT t = t_ + timestep;
 
-        if (t_ != acc_curve_.getAccT()) {
-          t_ += Time_Step_;
-        } else {
+        // uint32_t st = std::roundf(acc_curve_.st(t_));
+        // if (abs_u32(diff) <= st || dirChanged(diff)) {
+        //   state_ = State::Deacc;
+        //   return fsm(target);
+        // }
+
+        if (t > acc_curve_.getAccT()) {
+          t_ = acc_curve_.getAccT();
           state_ = State::Linear;
           return fsm(target);
         }
 
-        uint32_t st_new = std::roundf(acc_curve_.st(t_));
-        if (abs_u32(diff) < st_new + st_new - st) {
-          t_ -= Time_Step_;
-          uint32_t linear = abs_u32(diff) - st;
-          if (linear == 0) {
-            state_ = State::Deacc;
-            return fsm(target);
-          } else {
-            speed_ = std::roundf(acc_curve_.vt(t_));
-            steps_to_load_ = linear;
-          }
+        float temp = acc_curve_.st(t) + step_acc_;
+        uint32_t st_new = static_cast<uint32_t>(temp);
+        step_acc_ = temp - st_new;
+        if (abs_u32(diff) < st_new + st_new - last_st_) {
+          state_ = State::Linear;
+          return fsm(target);
         } else {
-          speed_ = std::roundf(acc_curve_.vt(t_));
-          steps_to_load_ = st_new - st;
+          speed_ = speed;
+          steps_to_load_ = st_new - last_st_;
         }
 
+        t_ = t;
+        last_st_ = st_new;
         state_ = State::LoadAcc;
         return fsm(target);
       } break;
       case State::LoadAcc: {
-        uint32_t steps = 0;
-        if (steps_to_load_ > gen_.maxSteps() &&
-            steps_to_load_ < gen_.maxSteps() * 2) {
-          steps = steps_to_load_ / 2;
-        } else {
-          steps = std::min(steps_to_load_, gen_.maxSteps());
-        }
-        steps_to_load_ -= steps;
-        loaded_pos_ +=
-            (drv_.getDirection() == StepDriverT::Dir::Forward) ? steps : -steps;
+        auto step = fsmLoad();
         if (steps_to_load_ == 0) {
           state_ = State::Acc;
         }
-        return StepT{.freq = speed_, .steps = steps, .dummy = false};
+        return step;
       } break;
 
       case State::Linear: {
-        uint32_t st = std::roundf(acc_curve_.st(t_));
-        if (abs_u32(diff) <= st) {
+        if (abs_u32(diff) <= last_st_) {
+          next_deacc_speed_ = speed_;
+          step_acc_ = 0.0f;
           state_ = State::Deacc;
           return fsm(target);
         }
 
-        speed_ = std::roundf(acc_curve_.vt(t_));
         steps_to_load_ = speed_ * Time_Step_.value() / 1'000;
 
-        if (abs_u32(diff) < st + steps_to_load_) {
-          steps_to_load_ = abs_u32(diff) - st;
+        if (abs_u32(diff) < last_st_ + steps_to_load_) {
+          steps_to_load_ = abs_u32(diff) - last_st_;
         }
 
         state_ = State::LoadLinear;
         return fsm(target);
       } break;
       case State::LoadLinear: {
-        uint32_t steps = 0;
-        if (steps_to_load_ > gen_.maxSteps() &&
-            steps_to_load_ < gen_.maxSteps() * 2) {
-          steps = steps_to_load_ / 2;
-        } else {
-          steps = std::min(steps_to_load_, gen_.maxSteps());
-        }
-        steps_to_load_ -= steps;
-        loaded_pos_ +=
-            (drv_.getDirection() == StepDriverT::Dir::Forward) ? steps : -steps;
+        auto step = fsmLoad();
         if (steps_to_load_ == 0) {
           state_ = State::Linear;
         }
-        return StepT{.freq = speed_, .steps = steps, .dummy = false};
+        return step;
       } break;
 
       case State::Deacc: {
-        uint32_t st = std::roundf(acc_curve_.st(t_));
-        // if (!dirChanged(diff) && abs_u32(diff) > st) {
-        //   state_ = State::Acc;
-        //   return fsm(target);
-        // }
+        speed_ = next_deacc_speed_;
+        uint32_t predicted_timestep = std::ceilf(1'000.0f / speed_);
+        MsT timestep = std::max(MsT{predicted_timestep}, Time_Step_);
+        MsT t = (t_ > timestep) ? t_ - timestep : MsT{0};
 
-        if (t_ != MsT{0}) {
-          t_ -= Time_Step_;
-        } else {
+        if (t_ == MsT{0}) {
           state_ = State::Idle;
           return fsm(target);
         }
 
-        speed_ = std::roundf(acc_curve_.vt(t_));
-        uint32_t st_new = std::roundf(acc_curve_.st(t_));
-        steps_to_load_ = st - st_new;
+        float temp = acc_curve_.st(t) + step_acc_;
+        uint32_t st_new = static_cast<uint32_t>(temp);
+        step_acc_ = temp - st_new;
+        steps_to_load_ = last_st_ - st_new;
 
+        next_deacc_speed_ = std::roundf(acc_curve_.vt(t));
+
+        t_ = t;
+        last_st_ = st_new;
         state_ = State::LoadDeacc;
         return fsm(target);
       } break;
       case State::LoadDeacc: {
-        uint32_t steps = 0;
-        if (steps_to_load_ > gen_.maxSteps() &&
-            steps_to_load_ < gen_.maxSteps() * 2) {
-          steps = steps_to_load_ / 2;
-        } else {
-          steps = std::min(steps_to_load_, gen_.maxSteps());
-        }
-        steps_to_load_ -= steps;
-        loaded_pos_ +=
-            (drv_.getDirection() == StepDriverT::Dir::Forward) ? steps : -steps;
+        auto step = fsmLoad();
         if (steps_to_load_ == 0) {
           state_ = State::Deacc;
         }
-        return StepT{.freq = speed_, .steps = steps, .dummy = false};
+        return step;
       } break;
 
       case State::Stop: {
@@ -333,6 +315,20 @@ class StepPositioner {
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
       } break;
     }
+  }
+
+  StepT fsmLoad() {
+    uint32_t steps = 0;
+    if (steps_to_load_ > gen_.maxSteps() &&
+        steps_to_load_ < gen_.maxSteps() * 2) {
+      steps = steps_to_load_ / 2;
+    } else {
+      steps = std::min(steps_to_load_, gen_.maxSteps());
+    }
+    steps_to_load_ -= steps;
+    loaded_pos_ +=
+        (drv_.getDirection() == StepDriverT::Dir::Forward) ? steps : -steps;
+    return StepT{.freq = speed_, .steps = steps, .dummy = false};
   }
 
   bool dirChanged(int32_t diff) {

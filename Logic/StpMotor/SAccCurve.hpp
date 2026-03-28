@@ -65,7 +65,7 @@ class SAccCurve {
     float t5 = t_div_max_t * t4;
 
     float temp = min_v_ * static_cast<float>(t.value()) / 1'000.0f - t5 +
-                 3.0f * t4 - 5.0f * t3;
+                 3.0f * t4 - 2.5f * t3;
 
     return temp;
   };

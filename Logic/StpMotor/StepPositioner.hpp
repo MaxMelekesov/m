@@ -103,7 +103,7 @@ class StepPositioner {
 
   CoroMutex mutex_;
 
-  SAccCurve acc_curve_{MsT{250}, 4'000, 15'000};
+  SAccCurve acc_curve_{MsT{250}, 4'000, 40'000};
   bool autohold_ = false;
   MsT driver_en_delay_{10};
   MsT stop_delay_{100};
@@ -138,15 +138,7 @@ class StepPositioner {
   State state_ = State::Idle;
 
   StepT nextStep() {
-    const auto pending_epoch = pending_epoch_.load(std::memory_order_acquire);
     auto target = target_pos_.load(std::memory_order_acquire);
-
-    // auto update_pending = m::finally([&] {
-    //   if (pending == 0) return;
-    //   if (pending_epoch_.load(std::memory_order_acquire) != pending_epoch)
-    //     return;
-    //   target_pos_.fetch_add(pending, std::memory_order_relaxed);
-    // });
 
     return fsm(target);
   }
@@ -226,6 +218,7 @@ class StepPositioner {
         }
 
         steps_to_load_ = speed_ * Time_Step_.value() / 1'000;
+        if (steps_to_load_ == 0) steps_to_load_ = 1;
 
         if (abs_u32(diff) < last_st_ + steps_to_load_) {
           steps_to_load_ = abs_u32(diff) - last_st_;

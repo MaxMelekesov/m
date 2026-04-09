@@ -13,22 +13,37 @@
 
 #include <CoroMutex.hpp>
 #include <CoroScheduler.hpp>
+#include <CoroUntil.hpp>
 #include <CoroYield.hpp>
+#include <FinalAction.hpp>
+#include <ITime.hpp>
 #include <ModbusRtuMaster.hpp>
+#include <Timer.hpp>
+#include <utility>
 
 namespace m {
-template <CModbusRtuMaster Mdbs>
+template <CModbusRtuMaster Mdbs, m::ifc::CTimeUs TimeUsT>
 class ModbusRtuMasterWrapper {
  private:
   using Unit = typename Mdbs::Unit;
   using Error = typename Mdbs::Error;
+  using UsT = decltype(std::declval<TimeUsT>().getTick());
 
  public:
-  ModbusRtuMasterWrapper(Mdbs& modbus) : modbus_(modbus) {}
+  ModbusRtuMasterWrapper(Mdbs& modbus, TimeUsT& time)
+      : modbus_(modbus), time_(time) {}
 
   auto readMhr(uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
                std::span<uint8_t> data) -> Task<bool> {
     co_await mutex_.lock();
+
+    if (!timer_.running()) {
+      timer_.restart(UsT{800});
+    } else {
+      co_await m::coroWhile([&]() { return !timer_.timeOver(); });
+    }
+    auto cleanup = m::finally([&] { timer_.restart(UsT{800}); });
+
     Unit unit{addr, reg_addr, regs_num};
     auto size = modbus_.readMhrResponseSize(unit);
     auto span = std::span<uint8_t>{response_buf_.data(), size};
@@ -58,6 +73,14 @@ class ModbusRtuMasterWrapper {
   auto writeShr(uint8_t addr, uint16_t reg_addr, uint16_t value)
       -> m::Task<bool> {
     co_await mutex_.lock();
+
+    if (!timer_.running()) {
+      timer_.restart(UsT{800});
+    } else {
+      co_await m::coroWhile([&]() { return !timer_.timeOver(); });
+    }
+    auto cleanup = m::finally([&] { timer_.restart(UsT{800}); });
+
     Unit unit{addr, reg_addr, value};
     auto span = std::span<uint8_t>{request_buf_.data(), 8};
     if (!modbus_.writeShr(unit, span)) {
@@ -81,6 +104,14 @@ class ModbusRtuMasterWrapper {
   auto writeMhr(uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
                 std::span<uint8_t> data) -> m::Task<bool> {
     co_await mutex_.lock();
+
+    if (!timer_.running()) {
+      timer_.restart(UsT{800});
+    } else {
+      co_await m::coroWhile([&]() { return !timer_.timeOver(); });
+    }
+    auto cleanup = m::finally([&] { timer_.restart(UsT{800}); });
+
     Unit unit{addr, reg_addr, regs_num};
     auto request_size = modbus_.writeMhrRequestSize(unit);
     auto request_span = std::span<uint8_t>{request_buf_.data(), request_size};
@@ -108,6 +139,9 @@ class ModbusRtuMasterWrapper {
 
  private:
   Mdbs& modbus_;
+  TimeUsT& time_;
+
+  Timer<UsT> timer_{time_};
   m::CoroMutex mutex_;
 
   std::array<uint8_t, 256> response_buf_;
@@ -115,7 +149,6 @@ class ModbusRtuMasterWrapper {
 };
 
 template <typename T>
-
 concept CModbusRtuMasterWrapper =
     requires(T wrapper, uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
              uint16_t value, std::span<uint8_t> data) {
@@ -131,8 +164,10 @@ concept CModbusRtuMasterWrapper =
     };
 
 static_assert(
-    CModbusRtuMasterWrapper<ModbusRtuMasterWrapper<ModbusRtuMaster<
-        ifc::IIO_Async<Bps<uint32_t>>, ifc::ITime<Us<uint32_t>>>>>,
+    CModbusRtuMasterWrapper<
+        ModbusRtuMasterWrapper<ModbusRtuMaster<ifc::IIO_Async<Bps<uint32_t>>,
+                                               ifc::ITime<Us<uint32_t>>>,
+                               ifc::ITime<Us<uint32_t>>>>,
     "ModbusRtuMasterWrapper must satisfy CModbusRtuMasterWrapper concept");
 }  // namespace m
 

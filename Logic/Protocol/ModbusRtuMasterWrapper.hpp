@@ -38,6 +38,7 @@ class ModbusRtuMasterWrapper {
     co_await mutex_.lock();
 
     if (!timer_.running()) {
+      // TOD: delay based on modbus baudrate
       timer_.restart(UsT{800});
     } else {
       co_await m::coroWhile([&]() { return !timer_.timeOver(); });

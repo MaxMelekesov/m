@@ -11,9 +11,9 @@
 #ifndef FSM_V4_HPP
 #define FSM_V4_HPP
 
+#include <concepts>
 #include <type_traits>
 #include <variant>
-#include <concepts>
 
 /* Example usage:
 

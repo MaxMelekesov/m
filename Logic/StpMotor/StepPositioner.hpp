@@ -117,6 +117,7 @@ class StepPositioner {
   uint32_t steps_to_load_{0};
 
   MsT stop_counter_{0};
+  bool reverse_pending_{false};
 
   uint32_t last_st_{0};
   float step_acc_{0.0f};
@@ -134,6 +135,7 @@ class StepPositioner {
     LoadDeacc,
     Stop,
     WaitStop,
+    WaitReverse,
   };
   State state_ = State::Idle;
 
@@ -168,6 +170,10 @@ class StepPositioner {
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
       } break;
       case State::Acc: {
+        if (requestReverse(diff)) {
+          return fsm(target);
+        }
+
         uint32_t speed = std::roundf(acc_curve_.vt(t_));
         uint32_t predicted_timestep = std::ceilf(1'000.0f / speed);
         MsT timestep = std::max(MsT{predicted_timestep}, Time_Step_);
@@ -202,6 +208,10 @@ class StepPositioner {
         return fsm(target);
       } break;
       case State::LoadAcc: {
+        if (requestReverse(diff)) {
+          return fsm(target);
+        }
+
         auto step = fsmLoad();
         if (steps_to_load_ == 0) {
           state_ = State::Acc;
@@ -210,6 +220,10 @@ class StepPositioner {
       } break;
 
       case State::Linear: {
+        if (requestReverse(diff)) {
+          return fsm(target);
+        }
+
         if (abs_u32(diff) <= last_st_) {
           next_deacc_speed_ = speed_;
           step_acc_ = 0.0f;
@@ -228,6 +242,10 @@ class StepPositioner {
         return fsm(target);
       } break;
       case State::LoadLinear: {
+        if (requestReverse(diff)) {
+          return fsm(target);
+        }
+
         auto step = fsmLoad();
         if (steps_to_load_ == 0) {
           state_ = State::Linear;
@@ -236,14 +254,36 @@ class StepPositioner {
       } break;
 
       case State::Deacc: {
+        if (reverse_pending_) {
+          if (dirChanged(diff)) {
+            if (speed_ == 0) {
+              speed_ = std::max<uint32_t>(
+                  1u, static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_))));
+            }
+            next_deacc_speed_ = std::max<uint32_t>(speed_, uint32_t{1});
+          } else {
+            reverse_pending_ = false;
+            state_ = State::Acc;
+            return fsm(target);
+          }
+        }
+
         speed_ = next_deacc_speed_;
         uint32_t predicted_timestep = std::ceilf(1'000.0f / speed_);
         MsT timestep = std::max(MsT{predicted_timestep}, Time_Step_);
         MsT t = (t_ > timestep) ? t_ - timestep : MsT{0};
 
         if (t_ == MsT{0}) {
-          state_ = State::Idle;
-          return fsm(target);
+          if (reverse_pending_) {
+            state_ = State::WaitReverse;
+            stop_counter_ = stop_delay_;
+            return StepT{.freq = 1'000,
+                         .steps = Time_Step_.value(),
+                         .dummy = true};
+          } else {
+            state_ = State::Idle;
+            return fsm(target);
+          }
         }
 
         float temp = acc_curve_.st(t) + step_acc_;
@@ -259,6 +299,14 @@ class StepPositioner {
         return fsm(target);
       } break;
       case State::LoadDeacc: {
+        if (reverse_pending_ && dirChanged(diff)) {
+          if (speed_ == 0) {
+            speed_ = std::max<uint32_t>(
+                1u, static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_))));
+          }
+          next_deacc_speed_ = std::max<uint32_t>(speed_, uint32_t{1});
+        }
+
         auto step = fsmLoad();
         if (steps_to_load_ == 0) {
           state_ = State::Deacc;
@@ -302,6 +350,17 @@ class StepPositioner {
         state_ = State::Idle;
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
       } break;
+      case State::WaitReverse: {
+        if (stop_counter_ > MsT{0}) {
+          --stop_counter_;
+          return StepT{
+              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+        }
+
+        reverse_pending_ = false;
+        state_ = State::Idle;
+        return fsm(target);
+      } break;
       default: {
         gen_.stop();
         state_ = State::Idle;
@@ -327,6 +386,23 @@ class StepPositioner {
   bool dirChanged(int32_t diff) {
     return (diff > 0 && drv_.getDirection() == StepDriverT::Dir::Backward) ||
            (diff < 0 && drv_.getDirection() == StepDriverT::Dir::Forward);
+  }
+
+  bool requestReverse(int32_t diff) {
+    if (diff == 0 || !dirChanged(diff)) {
+      return false;
+    }
+
+    reverse_pending_ = true;
+    step_acc_ = 0.0f;
+
+    if (speed_ == 0) {
+      speed_ =
+          std::max<uint32_t>(1u, static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_))));
+    }
+    next_deacc_speed_ = std::max<uint32_t>(speed_, uint32_t{1});
+    state_ = State::Deacc;
+    return true;
   }
 
   constexpr uint32_t abs_u32(int32_t x) {

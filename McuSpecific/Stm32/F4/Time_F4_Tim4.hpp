@@ -31,7 +31,7 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
     htim4_.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 
     htim4_.Base_MspInitCallback = [](TIM_HandleTypeDef* htim) {
-      __HAL_RCC_TIM5_CLK_ENABLE();
+      __HAL_RCC_TIM4_CLK_ENABLE();
     };
 
     HAL_TIM_Base_Init(&htim4_);

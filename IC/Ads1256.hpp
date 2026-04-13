@@ -409,6 +409,7 @@ concept CAds1256Reader = requires(T& reader, std::span<int32_t> data) {
   { reader.readDone() } -> std::same_as<bool>;
   { reader.readed() } -> std::convertible_to<std::size_t>;
   { reader.stopRead() } -> std::same_as<bool>;
+  { reader.lastValue() } -> std::same_as<int32_t>;
 };
 
 }  // namespace m::ic

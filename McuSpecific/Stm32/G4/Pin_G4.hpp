@@ -14,7 +14,7 @@
 #include <IPin.hpp>
 #include <cstdint>
 
-#include "stm32g4xx_hal_gpio.h"
+#include "stm32g4xx_hal.h"
 
 class GpioRcc {
  public:

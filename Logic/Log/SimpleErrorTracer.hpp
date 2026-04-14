@@ -8,15 +8,16 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef SIMPLEERRORTRACER_HPP
-#define SIMPLEERRORTRACER_HPP
+#ifndef SIMPLE_ERROR_TRACER_HPP
+#define SIMPLE_ERROR_TRACER_HPP
 
 #include <IErrorTracer.hpp>
+#include <array>
 #include <span>
 
 namespace m {
 
-template <typename T, std::size_t Max_Elements>
+template <typename T, std::size_t Max_Elements = 16>
 class SimpleErrorTracer : public m::ifc::IErrorTracer<T> {
  public:
   using type = T;
@@ -39,9 +40,9 @@ class SimpleErrorTracer : public m::ifc::IErrorTracer<T> {
 
  private:
   std::array<type, Max_Elements> log_;
-  std::span<type> log_span_{log_.data(), log_.size()};
+  std::span<type> log_span_{log_};
 };
 
 }  // namespace m
 
-#endif  // SIMPLEERRORTRACER_HPP
+#endif  // SIMPLE_ERROR_TRACER_HPP

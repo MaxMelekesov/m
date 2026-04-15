@@ -294,7 +294,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
 
     if (!m::execWithTimeout(
             time_, [&]() { return io_.writeDone(); },
-            span.size() * Us{1'000} / io_.getBaudrate().value() +
+            Us{span.size() * 1'000'000 / io_.getBaudrate().value()} +
                 add_timeout_)) {
       return false;
     }
@@ -303,11 +303,13 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
   }
 
   bool readSpan(std::span<uint8_t> span) {
-    if (!io_.readAsync(read_buf_)) return false;
+    if (!io_.readAsync(span)) {
+      return false;
+    }
 
     if (!m::execWithTimeout(
             time_, [&]() { return io_.readDone(); },
-            span.size() * Us{1'000} / io_.getBaudrate().value() +
+            Us{span.size() * 1'000'000 / io_.getBaudrate().value()} +
                 add_timeout_)) {
       return false;
     }

@@ -255,13 +255,7 @@ class StepPositioner {
 
       case State::Deacc: {
         if (reverse_pending_) {
-          if (dirChanged(diff)) {
-            if (speed_ == 0) {
-              speed_ = std::max<uint32_t>(
-                  1u, static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_))));
-            }
-            next_deacc_speed_ = std::max<uint32_t>(speed_, uint32_t{1});
-          } else {
+          if (!dirChanged(diff)) {
             reverse_pending_ = false;
             state_ = State::Acc;
             return fsm(target);
@@ -299,12 +293,10 @@ class StepPositioner {
         return fsm(target);
       } break;
       case State::LoadDeacc: {
-        if (reverse_pending_ && dirChanged(diff)) {
-          if (speed_ == 0) {
-            speed_ = std::max<uint32_t>(
-                1u, static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_))));
-          }
-          next_deacc_speed_ = std::max<uint32_t>(speed_, uint32_t{1});
+        if (reverse_pending_ && !dirChanged(diff)) {
+          reverse_pending_ = false;
+          state_ = State::Acc;
+          return fsm(target);
         }
 
         auto step = fsmLoad();
@@ -358,6 +350,8 @@ class StepPositioner {
         }
 
         reverse_pending_ = false;
+        last_st_ = 0;
+        step_acc_ = 0.0f;
         state_ = State::Idle;
         return fsm(target);
       } break;
@@ -396,11 +390,9 @@ class StepPositioner {
     reverse_pending_ = true;
     step_acc_ = 0.0f;
 
-    if (speed_ == 0) {
-      speed_ =
-          std::max<uint32_t>(1u, static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_))));
-    }
-    next_deacc_speed_ = std::max<uint32_t>(speed_, uint32_t{1});
+    const auto curve_speed = static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_)));
+    speed_ = std::max<uint32_t>(speed_, std::max<uint32_t>(curve_speed, uint32_t{1}));
+    next_deacc_speed_ = speed_;
     state_ = State::Deacc;
     return true;
   }

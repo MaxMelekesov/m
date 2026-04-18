@@ -12,6 +12,7 @@
 #define CHAIN_TASK_HPP
 
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -59,13 +60,9 @@
  *       }) |
  *       m::cresult([&]{ return dmaResult(); }));
  *
+ *   // cawait already propagates sub-task error — no manual check needed.
  *   auto task = m::makeChainTask<bool, Err>(
  *       m::cawait(sub) |
- *       m::cstep([&](auto ctx) {
- *           if (!sub.result().has_value())
- *               return ctx.err(sub.result().error());
- *           return ctx.done();
- *       }) |
  *       m::cresult([&]{ return true; }));
  *
  *   while (!task.handle()) { } // poll
@@ -85,11 +82,27 @@ namespace detail {
 
 enum class Step_Ctrl : uint8_t { Yield, Done, Finish, Err };
 
+// Union avoids default-constructing the inactive field and halves
+// the in-register size for small T/E (e.g. bool + uint8_t enum).
+// T and E must be trivially destructible (no explicit dtor needed).
 template <typename T, typename E>
 struct Step_Result {
   Step_Ctrl ctrl_;
-  T finish_val_{};
-  E err_val_{};
+  union {
+    T finish_val_;
+    E err_val_;
+  };
+  // Yield / Done — union member left indeterminate, never accessed.
+  explicit Step_Result(Step_Ctrl c) noexcept : ctrl_(c) {}
+  // Finish
+  Step_Result(Step_Ctrl c, T v) noexcept
+      : ctrl_(c), finish_val_(std::move(v)) {}
+  // Err — named constructor avoids ambiguity when T == E
+  static Step_Result make_err(E e) noexcept {
+    Step_Result r{Step_Ctrl::Err};
+    std::construct_at(&r.err_val_, std::move(e));
+    return r;
+  }
 };
 
 }  // namespace detail
@@ -103,16 +116,16 @@ struct Step_Result {
 template <typename T, typename E>
 struct StepCtx {
   [[nodiscard]] detail::Step_Result<T, E> yield() const noexcept {
-    return {detail::Step_Ctrl::Yield};
+    return detail::Step_Result<T, E>{detail::Step_Ctrl::Yield};
   }
   [[nodiscard]] detail::Step_Result<T, E> done() const noexcept {
-    return {detail::Step_Ctrl::Done};
+    return detail::Step_Result<T, E>{detail::Step_Ctrl::Done};
   }
   [[nodiscard]] detail::Step_Result<T, E> finish(T v) const noexcept {
-    return {detail::Step_Ctrl::Finish, std::move(v)};
+    return detail::Step_Result<T, E>{detail::Step_Ctrl::Finish, std::move(v)};
   }
   [[nodiscard]] detail::Step_Result<T, E> err(E e) const noexcept {
-    return {detail::Step_Ctrl::Err, {}, std::move(e)};
+    return detail::Step_Result<T, E>::make_err(std::move(e));
   }
 };
 
@@ -131,6 +144,7 @@ CstepT(Fn) -> CstepT<Fn>;
 template <typename Sub>
 struct CawaitT {
   using _is_chain_step_tag = void;
+  using sub_type = Sub;  // used for error-type compatibility check
   Sub* sub_;
 };
 template <typename Sub>
@@ -198,10 +212,22 @@ struct is_cresult<CresultT<Fn>> : std::true_type {};
 
 template <typename T, typename E, typename Pipeline>
 class ChainTask {
+ public:
+  // Public alias used by cawait compatibility checks.
+  using error_type = E;
+
+ private:
   static constexpr std::size_t Step_Count = std::tuple_size_v<
       std::remove_cvref_t<decltype(std::declval<Pipeline>().steps_)>>;
   static_assert(Step_Count > 0,
                 "ChainTask pipeline must have at least one step");
+  static_assert(std::is_default_constructible_v<T>,
+                "ChainTask: T must be default-constructible (required by "
+                "std::expected<T,E>{})");
+  static_assert(std::is_trivially_destructible_v<T> &&
+                    std::is_trivially_destructible_v<E>,
+                "ChainTask: T and E must be trivially destructible "
+                "(Step_Result uses a union)");
 
   using StepFn = bool (*)(ChainTask&) noexcept;
 
@@ -213,7 +239,6 @@ class ChainTask {
   // One template instantiation per pipeline slot — compiler/LTO typically
   // inlines simple steps and retains only the table pointer.
   template <std::size_t I>
-  [[gnu::always_inline]]
   static bool runStep(ChainTask& t) noexcept {
     auto& s = std::get<I>(t.pl_.steps_);
     using S = std::remove_cvref_t<decltype(s)>;
@@ -275,19 +300,16 @@ class ChainTask {
       if (t.idx_ == 2) return runStep<2>(t);
       return runStep<3>(t);
     } else {
+      // Jump table is declared only here, inside the if constexpr branch that
+      // requires Step_Count > 4, so it is never instantiated for short
+      // pipelines.
+      static constexpr auto Step_Table =
+          []<std::size_t... Is>(std::index_sequence<Is...>) constexpr noexcept {
+            return std::array<StepFn, Step_Count>{&runStep<Is>...};
+          }(std::make_index_sequence<Step_Count>{});
       return Step_Table[t.idx_](t);
     }
   }
-
-  template <std::size_t... Is>
-  static constexpr std::array<StepFn, Step_Count> makeTable(
-      std::index_sequence<Is...>) noexcept {
-    return {&runStep<Is>...};
-  }
-
-  // O(1) jump table in .rodata
-  static constexpr std::array<StepFn, Step_Count> Step_Table =
-      makeTable(std::make_index_sequence<Step_Count>{});
 
  public:
   constexpr explicit ChainTask(Pipeline p) noexcept : pl_(std::move(p)) {}
@@ -302,6 +324,11 @@ class ChainTask {
       if (finished_) return true;
       ++idx_;
     }
+    // Reaching here means every step returned ctx.done() without any step
+    // calling ctx.finish(), ctx.err(), or being a cresult — programming error.
+    assert(false &&
+           "ChainTask: pipeline ended without result; "
+           "last step must call ctx.finish() / ctx.err() or be cresult");
     finished_ = true;
     return true;
   }

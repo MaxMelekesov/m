@@ -52,17 +52,22 @@ class TimeUs final : public m::ifc::ITime<Us<uint16_t>> {
   TimeUs& operator=(TimeUs&&) = delete;
 
   void delay(Us<uint16_t> value) override {
-    Us<uint16_t> start = Us<uint16_t>{htim4_.Instance->CNT};
+    Us<uint16_t> start =
+        Us<uint16_t>{static_cast<uint16_t>(htim4_.Instance->CNT)};
     while (1) {
-      Us<uint16_t> now = Us<uint16_t>{htim4_.Instance->CNT};
+      Us<uint16_t> now =
+          Us<uint16_t>{static_cast<uint16_t>(htim4_.Instance->CNT)};
       if (now - start >= value) break;
     }
   }
 
-  Us<uint16_t> getTick() override { return Us<uint16_t>{htim4_.Instance->CNT}; }
+  Us<uint16_t> getTick() override {
+    return Us<uint16_t>{static_cast<uint16_t>(htim4_.Instance->CNT)};
+  }
 
   Us<uint16_t> getDiff(Us<uint16_t> value) override {
-    Us<uint16_t> diff = Us<uint16_t>{htim4_.Instance->CNT};
+    Us<uint16_t> diff =
+        Us<uint16_t>{static_cast<uint16_t>(htim4_.Instance->CNT)};
     diff -= value;
     return diff;
   }

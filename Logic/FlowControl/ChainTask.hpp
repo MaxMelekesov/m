@@ -5,10 +5,20 @@
  * it under the terms of the MIT License. See the LICENSE file in the
  * project root for more information.
  *
- * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
+ * Copyright (c) 2026 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#pragma once
+#ifndef CHAIN_TASK_HPP
+#define CHAIN_TASK_HPP
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <version>
 
 /**
  * ChainTask — cooperative pausable task built from a linear step pipeline.
@@ -20,11 +30,15 @@
  *         No heap, no RTTI, no exceptions.
  *
  *  Flash: N instantiations of runStep<I> (often inlined/folded by LTO) +
- *         N×4-byte read-only jump table (Step_Table) in .rodata.
+ *         N×4-byte read-only jump table (Step_Table) in .rodata for long
+ *         pipelines.
  *
- *  CPU  : O(1) per handle() call — single Step_Table[idx_](*this) indirect
- *         call.  Back-to-back synchronous (ctx.done()) steps are chained in
- *         one handle() without returning to the caller.
+ *  CPU  : O(1) dispatch per step.
+ *         For short pipelines (Step_Count <= 4), handle() uses direct
+ *         runStep<I>() dispatch (runCurrentStep), avoiding an indirect call.
+ *         For longer pipelines, it falls back to Step_Table[idx_].
+ *         Back-to-back synchronous (ctx.done()) steps are chained in one
+ *         handle() call without returning to the caller.
  *
  * cstep lambdas take a StepCtx<T,E> argument; all of its methods return the
  * same type, so the lambda return type is deduced automatically — no explicit
@@ -54,18 +68,14 @@
  *       }) |
  *       m::cresult([&]{ return true; }));
  *
- *   while (!task.handle()) { ... }
- *   auto res = task.result(); // std::expected<bool, Err>
+ *   while (!task.handle()) { } // poll
+ *   auto res = task.result(); // const std::expected<bool, Err>&
+ *
+ * Notes:
+ *   - cawait propagates sub-task error automatically.
+ *   - reset() rewinds state (idx_, finished_, result).
+ *   - Pipelines with <=4 steps are on the fastest dispatch path.
  */
-
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <expected>
-#include <tuple>
-#include <type_traits>
-#include <utility>
-#include <version>
 
 namespace m {
 
@@ -203,6 +213,7 @@ class ChainTask {
   // One template instantiation per pipeline slot — compiler/LTO typically
   // inlines simple steps and retains only the table pointer.
   template <std::size_t I>
+  [[gnu::always_inline]]
   static bool runStep(ChainTask& t) noexcept {
     auto& s = std::get<I>(t.pl_.steps_);
     using S = std::remove_cvref_t<decltype(s)>;
@@ -228,7 +239,7 @@ class ChainTask {
 
     } else if constexpr (detail::is_cawait<S>::value) {
       if (!s.sub_->handle()) return false;
-      auto sr = s.sub_->result();
+      const auto& sr = s.sub_->result();
       if (!sr.has_value()) {
         t.res_ = std::unexpected(sr.error());
         t.finished_ = true;
@@ -243,6 +254,28 @@ class ChainTask {
     } else {
       static_assert(sizeof(S) == 0,
                     "Unknown step type — use cstep / cawait / cresult");
+    }
+  }
+
+  // For short pipelines, avoid an indirect function-pointer call.
+  // This is hot in nested-task workloads where Step_Count is usually 2-4.
+  [[gnu::always_inline]] static bool runCurrentStep(ChainTask& t) noexcept {
+    if constexpr (Step_Count == 1) {
+      return runStep<0>(t);
+    } else if constexpr (Step_Count == 2) {
+      if (t.idx_ == 0) return runStep<0>(t);
+      return runStep<1>(t);
+    } else if constexpr (Step_Count == 3) {
+      if (t.idx_ == 0) return runStep<0>(t);
+      if (t.idx_ == 1) return runStep<1>(t);
+      return runStep<2>(t);
+    } else if constexpr (Step_Count == 4) {
+      if (t.idx_ == 0) return runStep<0>(t);
+      if (t.idx_ == 1) return runStep<1>(t);
+      if (t.idx_ == 2) return runStep<2>(t);
+      return runStep<3>(t);
+    } else {
+      return Step_Table[t.idx_](t);
     }
   }
 
@@ -262,9 +295,10 @@ class ChainTask {
   // Returns false while running, true when finished (success or error).
   // Synchronous steps (ctx.done()) chain within a single call.
   bool handle() noexcept {
-    if (finished_) [[unlikely]] return true;
+    if (finished_) [[unlikely]]
+      return true;
     while (idx_ < static_cast<std::uint16_t>(Step_Count)) {
-      if (!Step_Table[idx_](*this)) return false;
+      if (!runCurrentStep(*this)) return false;
       if (finished_) return true;
       ++idx_;
     }
@@ -309,3 +343,5 @@ template <typename Fn>
 }
 
 }  // namespace m
+
+#endif  // CHAIN_TASK_HPP

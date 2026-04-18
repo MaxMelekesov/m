@@ -17,7 +17,7 @@
 
 #include "stm32f4xx_hal.h"
 
-class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
+class TimeUs final : public m::ifc::ITime<Us<uint16_t>> {
  public:
   TimeUs() {
     TIM_ClockConfigTypeDef sClockSourceConfig = {0};
@@ -51,20 +51,18 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
   TimeUs(TimeUs&&) = delete;
   TimeUs& operator=(TimeUs&&) = delete;
 
-  void delay(Us<uint32_t> value) override {
-    Us<uint32_t> start = Us<uint32_t>{htim4_.Instance->CNT};
-    Us<uint32_t> delay = Us<uint32_t>{value.value()};
+  void delay(Us<uint16_t> value) override {
+    Us<uint16_t> start = Us<uint16_t>{htim4_.Instance->CNT};
     while (1) {
-      Us<uint32_t> now = Us<uint32_t>{htim4_.Instance->CNT};
-      Us<uint32_t> diff = now - start;
-      if (diff >= delay) break;
+      Us<uint16_t> now = Us<uint16_t>{htim4_.Instance->CNT};
+      if (now - start >= value) break;
     }
   }
 
-  Us<uint32_t> getTick() override { return Us<uint32_t>{htim4_.Instance->CNT}; }
+  Us<uint16_t> getTick() override { return Us<uint16_t>{htim4_.Instance->CNT}; }
 
-  Us<uint32_t> getDiff(Us<uint32_t> value) override {
-    Us<uint32_t> diff = Us<uint32_t>{htim4_.Instance->CNT};
+  Us<uint16_t> getDiff(Us<uint16_t> value) override {
+    Us<uint16_t> diff = Us<uint16_t>{htim4_.Instance->CNT};
     diff -= value;
     return diff;
   }

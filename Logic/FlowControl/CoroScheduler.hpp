@@ -18,6 +18,86 @@
 #include <limits>
 #include <utility>
 
+/**
+ * CoroScheduler — cooperative coroutine scheduler with static pool allocator.
+ *
+ * Overhead (Cortex-M4, arm-none-eabi-gcc -std=c++23):
+ *
+ *  RAM  : CoroTraits<>::slot_size × CoroTraits<>::capacity bytes for the
+ *         frame pool (default 384 × 16 = 6 144 B, BSS).
+ *         slot_map: capacity × 2 B.
+ *         No heap, no RTTI, no exceptions.
+ *
+ *  Flash: one promise_type per unique Task<T> instantiation +
+ *         CoroFramePool / CoroSchedulerImpl singletons (shared).
+ *
+ *  CPU  : O(n) per handle() call where n = number of ready coroutines.
+ *         FIFO ordering; nested co_await re-enqueues the parent on
+ *         child completion without blocking the run loop.
+ *
+ * Pool sizing:
+ *   Specialize CoroTraits<> before the first use to override defaults:
+ *
+ *     namespace m {
+ *       template<>
+ *       struct CoroTraits<> {
+ *         static constexpr std::size_t slot_size = 512;
+ *         static constexpr std::size_t capacity  = 8;
+ *       };
+ *     }
+ *
+ *   slot_size must be >= the largest coroutine frame in your application
+ *   (check peak_requested_size in Stats after a test run).
+ *   capacity is the maximum number of concurrently alive coroutines.
+ *
+ * Usage:
+ *   // Fire-and-forget leaf coroutine.
+ *   m::Task<void> blinkLed() {
+ *       gpio_toggle();
+ *       co_return;
+ *   }
+ *
+ *   // Coroutine that awaits a sub-coroutine and returns a value.
+ *   m::Task<int> readSensor() {
+ *       co_await blinkLed();       // wait for sub-task to finish
+ *       co_return adcRead();
+ *   }
+ *
+ *   // Top-level — launch tasks, then drive the scheduler from the main loop.
+ *   void setup() {
+ *       auto t = readSensor();     // starts immediately (suspend_never)
+ *       // t is kept alive until done; scheduler retains a handle internally.
+ *   }
+ *
+ *   void loop() {                  // call from SysTick / superloop
+ *       m::CoroScheduler::getInstance().handle();
+ *   }
+ *
+ *   // Optional: OOM hook and runtime stats (requires
+ * M_CORO_POOL_ENABLE_STATS). void setupOom() {
+ *       m::CoroScheduler::getInstance().setCoroutineOomCallback(
+ *           [](std::size_t req_sz, std::size_t req_slots,
+ *              std::size_t used, std::size_t cap) {
+ *               // log or trap
+ *           });
+ *   }
+ *
+ *   void printStats() {
+ *       const auto& s = m::CoroScheduler::getInstance().coroutineMemoryStats();
+ *       // s.peak_used_bytes, s.peak_requested_size, s.peak_used_slots, …
+ *   }
+ *
+ * Notes:
+ *   - Task<T> is move-only; do not copy.
+ *   - Destroying a Task<T> before it finishes marks it detached — the frame
+ *     is freed automatically on final_suspend.
+ *   - co_await on a Task<T> lvalue keeps the task alive in the caller's scope;
+ *     co_await on an rvalue (std::move) transfers ownership and destroys the
+ *     frame on resume.
+ *   - handle() must not be called re-entrantly (e.g. from within a coroutine).
+ *   - M_CORO_POOL_ENABLE_STATS=0 strips all stat tracking at compile time.
+ */
+
 #ifndef M_CORO_POOL_ENABLE_STATS
 #define M_CORO_POOL_ENABLE_STATS 1
 #endif

@@ -8,6 +8,87 @@
  * Copyright (c) 2026 Max Melekesov <max.melekesov@gmail.com>
  */
 
+/**
+ * ProtoThread — cooperative stackless threads via Duff's-device switch/case.
+ *
+ * Overhead (Cortex-M4, arm-none-eabi-gcc -std=c++23):
+ *
+ *  RAM  : 2 B (state_) + sizeof(pointer) (active_child_) per Proto<> instance.
+ *         Optional result_ field for Proto<Derived, T> (sizeof(T) extra bytes).
+ *         No heap, no RTTI, no exceptions.
+ *         PtScheduler holds a singly-linked intrusive list — zero extra storage.
+ *
+ *  Flash: one trampoline<Derived> instantiation per concrete Proto subclass.
+ *
+ *  CPU  : O(n) per handle() call where n = number of registered threads.
+ *         Active child is driven to leaf before the parent resumes — no extra
+ *         scheduler pass needed for nested PT_AWAIT.
+ *
+ * Macros:
+ *   PT_BEGIN()           — open the coroutine switch.
+ *   PT_END()             — close it; marks thread done and returns.
+ *   PT_YIELD()           — suspend, resume on next handle() call.
+ *   PT_WAIT_UNTIL(cond)  — suspend while cond is false.
+ *   PT_WAIT_WHILE(cond)  — suspend while cond is true.
+ *   PT_AWAIT(child)      — run child to completion, yields value (statement expr).
+ *   PT_SPAWN(child)      — reset & register child in the global scheduler.
+ *   PT_RETURN([value])   — finish early with optional return value.
+ *   PT_RESTART()         — rewind state to 0 and re-enter from the top.
+ *
+ * Usage:
+ *   // Leaf thread — no return value.
+ *   struct Blink : m::Proto<Blink> {
+ *       m::PtStatus run() {
+ *           PT_BEGIN();
+ *           gpio_on();
+ *           PT_WAIT_UNTIL(timer_expired());
+ *           gpio_off();
+ *           PT_END();
+ *       }
+ *   };
+ *
+ *   // Thread that returns a value via PT_RETURN.
+ *   struct ReadAdc : m::Proto<ReadAdc, int> {
+ *       m::PtStatus run() {
+ *           PT_BEGIN();
+ *           PT_WAIT_UNTIL(adc_ready());
+ *           PT_RETURN(adc_read());
+ *           PT_END();
+ *       }
+ *   };
+ *
+ *   // Parent thread awaiting a child.
+ *   struct App : m::Proto<App> {
+ *       ReadAdc adc;
+ *       m::PtStatus run() {
+ *           PT_BEGIN();
+ *           {
+ *               int val = PT_AWAIT(adc);   // suspends until adc finishes
+ *               process(val);
+ *           }
+ *           PT_END();
+ *       }
+ *   };
+ *
+ *   // Setup: register top-level threads once.
+ *   App app;
+ *   void setup() {
+ *       m::PtScheduler::getInstance().add(app);
+ *   }
+ *
+ *   // Main loop: drive all registered threads.
+ *   void loop() {
+ *       m::PtScheduler::getInstance().handle();
+ *   }
+ *
+ * Notes:
+ *   - PT_AWAIT uses a GCC statement expression — requires __extension__ or GCC/Clang.
+ *   - Proto<> is non-copyable; pass by reference or pointer.
+ *   - PtMutex provides a simple non-blocking tryLock/unlock primitive.
+ *   - allDone() returns true when every registered thread has finished.
+ *   - clear() unregisters all threads without resetting their state.
+ */
+
 #ifndef PROTO_THREAD_HPP
 #define PROTO_THREAD_HPP
 

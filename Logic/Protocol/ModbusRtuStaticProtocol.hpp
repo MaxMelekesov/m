@@ -30,13 +30,13 @@
 namespace m {
 
 enum class ModbusRtuError : uint8_t {
-  IllegalFunction    = 1,
+  IllegalFunction = 1,
   IllegalDataAddress = 2,
-  IllegalDataValue   = 3,
+  IllegalDataValue = 3,
   SlaveDeviceFailure = 4,
-  Acknowledge        = 5,
-  SlaveDeviceBusy    = 6,
-  MemoryParityError  = 8,
+  Acknowledge = 5,
+  SlaveDeviceBusy = 6,
+  MemoryParityError = 8,
 };
 
 template <uint8_t AddressV, typename HandlerT>
@@ -54,8 +54,32 @@ auto makeModbusAddressNode(HandlerT&& handler)
       std::forward<HandlerT>(handler)};
 }
 
+namespace detail {
+
+template <typename Node>
+consteval bool isModbusNode() {
+  return requires {
+    typename Node::Handler;
+    { Node::address } -> std::convertible_to<uint8_t>;
+  };
+}
+
+template <typename FirstNode>
+consteval bool uniqueNodeAddresses() {
+  return true;
+}
+
+template <typename FirstNode, typename SecondNode, typename... RestNodes>
+consteval bool uniqueNodeAddresses() {
+  return (FirstNode::address != SecondNode::address) &&
+         ((FirstNode::address != RestNodes::address) && ...) &&
+         uniqueNodeAddresses<SecondNode, RestNodes...>();
+}
+
+}  // namespace detail
+
 template <m::ifc::CTime TimeUsT, m::ifc::mcu::CPin PintT, typename... Nodes>
-  requires (m::ifc::CUs<typename TimeUsT::Unit> && (sizeof...(Nodes) > 0))
+  requires(m::ifc::CUs<typename TimeUsT::Unit> && (sizeof...(Nodes) > 0))
 class ModbusRtuStaticProtocol {
  public:
   enum class Commands : uint8_t {
@@ -78,14 +102,13 @@ class ModbusRtuStaticProtocol {
     decltype(std::declval<TimeUsT&>().now()) tx_response_delay;
   };
 
-  static_assert((isModbusNode<Nodes>() && ...),
+  static_assert((detail::isModbusNode<Nodes>() && ...),
                 "Nodes must be ModbusAddressNode-like types");
-  static_assert(uniqueNodeAddresses<Nodes...>(),
+  static_assert(detail::uniqueNodeAddresses<Nodes...>(),
                 "Modbus node addresses must be unique");
 
   explicit ModbusRtuStaticProtocol(m::ifc::IDataLink& data_link, TimeUsT& time,
-                                   Timings timings,
-                                   std::span<uint8_t> rx_buf,
+                                   Timings timings, std::span<uint8_t> rx_buf,
                                    std::span<uint8_t> tx_buf, PintT& rx_led,
                                    PintT& tx_led, Nodes... nodes)
       : data_link_(data_link),
@@ -170,86 +193,74 @@ class ModbusRtuStaticProtocol {
   }
 
  private:
-  template <typename Node>
-  static consteval bool isModbusNode() {
-    return requires {
-      typename Node::Handler;
-      { Node::address } -> std::convertible_to<uint8_t>;
-    };
-  }
-
-  template <typename FirstNode>
-  static consteval bool uniqueNodeAddresses() {
-    return true;
-  }
-
-  template <typename FirstNode, typename SecondNode, typename... RestNodes>
-  static consteval bool uniqueNodeAddresses() {
-    return (FirstNode::address != SecondNode::address) &&
-           ((FirstNode::address != RestNodes::address) && ...) &&
-           uniqueNodeAddresses<SecondNode, RestNodes...>();
-  }
-
-    template <typename HandlerT>
-    static constexpr bool ReadCoilsHandlerV =
+  template <typename HandlerT>
+  static constexpr bool ReadCoilsHandlerV =
       requires(HandlerT& handler, uint16_t start_addr, uint16_t coils_num,
-           std::span<uint8_t> coils) {
-      { handler.readCoils(start_addr, coils_num, coils) }
-        -> std::same_as<std::optional<Error>>;
+               std::span<uint8_t> coils) {
+        {
+          handler.readCoils(start_addr, coils_num, coils)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool ReadDiscreteInputsHandlerV =
+  template <typename HandlerT>
+  static constexpr bool ReadDiscreteInputsHandlerV =
       requires(HandlerT& handler, uint16_t start_addr, uint16_t inputs_num,
-           std::span<uint8_t> inputs) {
-      { handler.readDiscreteInputs(start_addr, inputs_num, inputs) }
-        -> std::same_as<std::optional<Error>>;
+               std::span<uint8_t> inputs) {
+        {
+          handler.readDiscreteInputs(start_addr, inputs_num, inputs)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool ReadHoldingRegistersHandlerV =
+  template <typename HandlerT>
+  static constexpr bool ReadHoldingRegistersHandlerV =
       requires(HandlerT& handler, uint16_t start_addr, uint16_t regs_num,
-           std::span<uint8_t> regs) {
-      { handler.readHoldingRegisters(start_addr, regs_num, regs) }
-        -> std::same_as<std::optional<Error>>;
+               std::span<uint8_t> regs) {
+        {
+          handler.readHoldingRegisters(start_addr, regs_num, regs)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool ReadInputRegistersHandlerV =
+  template <typename HandlerT>
+  static constexpr bool ReadInputRegistersHandlerV =
       requires(HandlerT& handler, uint16_t start_addr, uint16_t regs_num,
-           std::span<uint8_t> regs) {
-      { handler.readInputRegisters(start_addr, regs_num, regs) }
-        -> std::same_as<std::optional<Error>>;
+               std::span<uint8_t> regs) {
+        {
+          handler.readInputRegisters(start_addr, regs_num, regs)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool WriteSingleCoilHandlerV =
+  template <typename HandlerT>
+  static constexpr bool WriteSingleCoilHandlerV =
       requires(HandlerT& handler, uint16_t addr, bool value) {
-      { handler.writeSingleCoil(addr, value) }
-        -> std::same_as<std::optional<Error>>;
+        {
+          handler.writeSingleCoil(addr, value)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool WriteSingleHoldingRegisterHandlerV =
+  template <typename HandlerT>
+  static constexpr bool WriteSingleHoldingRegisterHandlerV =
       requires(HandlerT& handler, uint16_t addr, uint16_t value) {
-      { handler.writeSingleHoldingRegister(addr, value) }
-        -> std::same_as<std::optional<Error>>;
+        {
+          handler.writeSingleHoldingRegister(addr, value)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool WriteMultipleCoilsHandlerV =
+  template <typename HandlerT>
+  static constexpr bool WriteMultipleCoilsHandlerV =
       requires(HandlerT& handler, uint16_t start_addr, uint16_t coils_num,
-           std::span<uint8_t> coils) {
-      { handler.writeMultipleCoils(start_addr, coils_num, coils) }
-        -> std::same_as<std::optional<Error>>;
+               std::span<uint8_t> coils) {
+        {
+          handler.writeMultipleCoils(start_addr, coils_num, coils)
+        } -> std::same_as<std::optional<Error>>;
       };
 
-    template <typename HandlerT>
-    static constexpr bool WriteMultipleHoldingRegistersHandlerV =
+  template <typename HandlerT>
+  static constexpr bool WriteMultipleHoldingRegistersHandlerV =
       requires(HandlerT& handler, uint16_t start_addr, uint16_t regs_num,
-           std::span<uint8_t> regs) {
-      { handler.writeMultipleHoldingRegisters(start_addr, regs_num, regs) }
-        -> std::same_as<std::optional<Error>>;
+               std::span<uint8_t> regs) {
+        {
+          handler.writeMultipleHoldingRegisters(start_addr, regs_num, regs)
+        } -> std::same_as<std::optional<Error>>;
       };
 
   static constexpr bool SupportsReadCoilsV =
@@ -297,9 +308,9 @@ class ModbusRtuStaticProtocol {
     }
 
     const auto request_no_crc = rx_buf.first(rx_buf.size() - 2);
-    const uint16_t crc_origin = static_cast<uint16_t>(rx_buf[rx_buf.size() - 2]) |
-                                (static_cast<uint16_t>(rx_buf[rx_buf.size() - 1])
-                                 << 8);
+    const uint16_t crc_origin =
+        static_cast<uint16_t>(rx_buf[rx_buf.size() - 2]) |
+        (static_cast<uint16_t>(rx_buf[rx_buf.size() - 1]) << 8);
     if (crc16(request_no_crc) != crc_origin) {
       return std::nullopt;
     }
@@ -327,8 +338,8 @@ class ModbusRtuStaticProtocol {
         break;
       case Commands::ReadDiscreteInputs:
         if constexpr (SupportsReadDiscreteInputsV) {
-          result =
-              dispatchReadDiscreteInputs(addr, request_payload, response_payload);
+          result = dispatchReadDiscreteInputs(addr, request_payload,
+                                              response_payload);
         }
         break;
       case Commands::ReadMultipleHoldingRegisters:
@@ -339,8 +350,8 @@ class ModbusRtuStaticProtocol {
         break;
       case Commands::ReadInputRegisters:
         if constexpr (SupportsReadInputRegistersV) {
-          result =
-              dispatchReadInputRegisters(addr, request_payload, response_payload);
+          result = dispatchReadInputRegisters(addr, request_payload,
+                                              response_payload);
         }
         break;
       case Commands::WriteSingleCoil:
@@ -402,7 +413,7 @@ class ModbusRtuStaticProtocol {
     std::apply(
         [&](auto&... node) {
           ((found = found ||
-                     (addr == std::remove_cvref_t<decltype(node)>::address)),
+                    (addr == std::remove_cvref_t<decltype(node)>::address)),
            ...);
         },
         nodes_);
@@ -627,8 +638,7 @@ class ModbusRtuStaticProtocol {
     }
 
     const uint16_t addr = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
-    const uint16_t value =
-        (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
+    const uint16_t value = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
 
     if (value != 0x0000U && value != 0xFF00U) {
       return {Error::IllegalDataValue, 0};
@@ -651,8 +661,7 @@ class ModbusRtuStaticProtocol {
     }
 
     const uint16_t addr = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
-    const uint16_t value =
-        (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
+    const uint16_t value = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
 
     if (auto err = handler.writeSingleHoldingRegister(addr, value); err) {
       return {err, 0};
@@ -718,8 +727,7 @@ class ModbusRtuStaticProtocol {
       return {Error::IllegalDataValue, 0};
     }
 
-    const uint32_t regs_range =
-        static_cast<uint32_t>(start_address) + regs_num;
+    const uint32_t regs_range = static_cast<uint32_t>(start_address) + regs_num;
     if (regs_range > 0xFFFFU) {
       return {Error::IllegalDataAddress, 0};
     }
@@ -731,8 +739,8 @@ class ModbusRtuStaticProtocol {
     auto regs = rx_buf.subspan(5, regs_num * 2U);
     swapBytesInSpan(regs);
 
-    if (auto err =
-            handler.writeMultipleHoldingRegisters(start_address, regs_num, regs);
+    if (auto err = handler.writeMultipleHoldingRegisters(start_address,
+                                                         regs_num, regs);
         err) {
       return {err, 0};
     }
@@ -804,33 +812,31 @@ inline constexpr bool IsNoCallback =
 //           return std::nullopt;
 //       })
 //       .withWriteSingleHoldingRegister([&](uint16_t addr, uint16_t value)
-//                                           -> std::optional<m::ModbusRtuError> {
+//                                           -> std::optional<m::ModbusRtuError>
+//                                           {
 //           ...
 //           return std::nullopt;
 //       })
 //       .build();
 // ---------------------------------------------------------------------------
 
-template <typename RcCbT   = NoModbusCallback,
-          typename RdiCbT  = NoModbusCallback,
-          typename RhrCbT  = NoModbusCallback,
-          typename RirCbT  = NoModbusCallback,
-          typename WscCbT  = NoModbusCallback,
-          typename WshrCbT = NoModbusCallback,
-          typename WmcCbT  = NoModbusCallback,
-          typename WmhrCbT = NoModbusCallback>
+template <
+    typename RcCbT = NoModbusCallback, typename RdiCbT = NoModbusCallback,
+    typename RhrCbT = NoModbusCallback, typename RirCbT = NoModbusCallback,
+    typename WscCbT = NoModbusCallback, typename WshrCbT = NoModbusCallback,
+    typename WmcCbT = NoModbusCallback, typename WmhrCbT = NoModbusCallback>
 class ModbusLambdaHandler {
  public:
   using Error = ModbusRtuError;
 
-  [[no_unique_address]] RcCbT   rc_cb{};
-  [[no_unique_address]] RdiCbT  rdi_cb{};
-  [[no_unique_address]] RhrCbT  rhr_cb{};
-  [[no_unique_address]] RirCbT  rir_cb{};
-  [[no_unique_address]] WscCbT  wsc_cb{};
-  [[no_unique_address]] WshrCbT wshr_cb{};
-  [[no_unique_address]] WmcCbT  wmc_cb{};
-  [[no_unique_address]] WmhrCbT wmhr_cb{};
+  [[no_unique_address]] RcCbT rc_cb;
+  [[no_unique_address]] RdiCbT rdi_cb;
+  [[no_unique_address]] RhrCbT rhr_cb;
+  [[no_unique_address]] RirCbT rir_cb;
+  [[no_unique_address]] WscCbT wsc_cb;
+  [[no_unique_address]] WshrCbT wshr_cb;
+  [[no_unique_address]] WmcCbT wmc_cb;
+  [[no_unique_address]] WmhrCbT wmhr_cb;
 
   std::optional<Error> readCoils(uint16_t start_addr, uint16_t coils_num,
                                  std::span<uint8_t> coils)
@@ -884,8 +890,8 @@ class ModbusLambdaHandler {
   }
 
   std::optional<Error> writeMultipleHoldingRegisters(uint16_t start_addr,
-                                                      uint16_t regs_num,
-                                                      std::span<uint8_t> regs)
+                                                     uint16_t regs_num,
+                                                     std::span<uint8_t> regs)
     requires(!detail::IsNoCallback<WmhrCbT>)
   {
     return wmhr_cb(start_addr, regs_num, regs);
@@ -896,29 +902,32 @@ class ModbusLambdaHandler {
 // ModbusLambdaHandlerBuilder — builder for ModbusLambdaHandler
 // ---------------------------------------------------------------------------
 
-template <typename RcCbT   = NoModbusCallback,
-          typename RdiCbT  = NoModbusCallback,
-          typename RhrCbT  = NoModbusCallback,
-          typename RirCbT  = NoModbusCallback,
-          typename WscCbT  = NoModbusCallback,
-          typename WshrCbT = NoModbusCallback,
-          typename WmcCbT  = NoModbusCallback,
-          typename WmhrCbT = NoModbusCallback>
+template <
+    typename RcCbT = NoModbusCallback, typename RdiCbT = NoModbusCallback,
+    typename RhrCbT = NoModbusCallback, typename RirCbT = NoModbusCallback,
+    typename WscCbT = NoModbusCallback, typename WshrCbT = NoModbusCallback,
+    typename WmcCbT = NoModbusCallback, typename WmhrCbT = NoModbusCallback>
 struct ModbusLambdaHandlerBuilder {
-  RcCbT   rc_cb{};
-  RdiCbT  rdi_cb{};
-  RhrCbT  rhr_cb{};
-  RirCbT  rir_cb{};
-  WscCbT  wsc_cb{};
-  WshrCbT wshr_cb{};
-  WmcCbT  wmc_cb{};
-  WmhrCbT wmhr_cb{};
+  RcCbT rc_cb;
+  RdiCbT rdi_cb;
+  RhrCbT rhr_cb;
+  RirCbT rir_cb;
+  WscCbT wsc_cb;
+  WshrCbT wshr_cb;
+  WmcCbT wmc_cb;
+  WmhrCbT wmhr_cb;
 
   template <typename F>
   auto withReadCoils(F&& f) const {
     return ModbusLambdaHandlerBuilder<std::decay_t<F>, RdiCbT, RhrCbT, RirCbT,
                                       WscCbT, WshrCbT, WmcCbT, WmhrCbT>{
-        std::forward<F>(f), rdi_cb, rhr_cb, rir_cb, wsc_cb, wshr_cb, wmc_cb,
+        std::forward<F>(f),
+        rdi_cb,
+        rhr_cb,
+        rir_cb,
+        wsc_cb,
+        wshr_cb,
+        wmc_cb,
         wmhr_cb};
   }
 
@@ -926,7 +935,7 @@ struct ModbusLambdaHandlerBuilder {
   auto withReadDiscreteInputs(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, std::decay_t<F>, RhrCbT, RirCbT,
                                       WscCbT, WshrCbT, WmcCbT, WmhrCbT>{
-        rc_cb, std::forward<F>(f), rhr_cb, rir_cb, wsc_cb, wshr_cb, wmc_cb,
+        rc_cb,  std::forward<F>(f), rhr_cb, rir_cb, wsc_cb, wshr_cb, wmc_cb,
         wmhr_cb};
   }
 
@@ -934,40 +943,40 @@ struct ModbusLambdaHandlerBuilder {
   auto withReadHoldingRegisters(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, RdiCbT, std::decay_t<F>, RirCbT,
                                       WscCbT, WshrCbT, WmcCbT, WmhrCbT>{
-        rc_cb, rdi_cb, std::forward<F>(f), rir_cb, wsc_cb, wshr_cb, wmc_cb,
-        wmhr_cb};
+        rc_cb,  rdi_cb, std::forward<F>(f), rir_cb, wsc_cb, wshr_cb,
+        wmc_cb, wmhr_cb};
   }
 
   template <typename F>
   auto withReadInputRegisters(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, RdiCbT, RhrCbT, std::decay_t<F>,
                                       WscCbT, WshrCbT, WmcCbT, WmhrCbT>{
-        rc_cb, rdi_cb, rhr_cb, std::forward<F>(f), wsc_cb, wshr_cb, wmc_cb,
-        wmhr_cb};
+        rc_cb,  rdi_cb,  rhr_cb, std::forward<F>(f),
+        wsc_cb, wshr_cb, wmc_cb, wmhr_cb};
   }
 
   template <typename F>
   auto withWriteSingleCoil(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, RdiCbT, RhrCbT, RirCbT,
                                       std::decay_t<F>, WshrCbT, WmcCbT,
-                                      WmhrCbT>{rc_cb, rdi_cb, rhr_cb, rir_cb,
-                                               std::forward<F>(f), wshr_cb,
-                                               wmc_cb, wmhr_cb};
+                                      WmhrCbT>{
+        rc_cb,   rdi_cb, rhr_cb, rir_cb, std::forward<F>(f),
+        wshr_cb, wmc_cb, wmhr_cb};
   }
 
   template <typename F>
   auto withWriteSingleHoldingRegister(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, RdiCbT, RhrCbT, RirCbT, WscCbT,
                                       std::decay_t<F>, WmcCbT, WmhrCbT>{
-        rc_cb, rdi_cb, rhr_cb, rir_cb, wsc_cb, std::forward<F>(f), wmc_cb,
-        wmhr_cb};
+        rc_cb,  rdi_cb, rhr_cb, rir_cb, wsc_cb, std::forward<F>(f),
+        wmc_cb, wmhr_cb};
   }
 
   template <typename F>
   auto withWriteMultipleCoils(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, RdiCbT, RhrCbT, RirCbT, WscCbT,
                                       WshrCbT, std::decay_t<F>, WmhrCbT>{
-        rc_cb, rdi_cb, rhr_cb, rir_cb, wsc_cb, wshr_cb, std::forward<F>(f),
+        rc_cb,  rdi_cb, rhr_cb, rir_cb, wsc_cb, wshr_cb, std::forward<F>(f),
         wmhr_cb};
   }
 
@@ -975,21 +984,18 @@ struct ModbusLambdaHandlerBuilder {
   auto withWriteMultipleHoldingRegisters(F&& f) const {
     return ModbusLambdaHandlerBuilder<RcCbT, RdiCbT, RhrCbT, RirCbT, WscCbT,
                                       WshrCbT, WmcCbT, std::decay_t<F>>{
-        rc_cb, rdi_cb, rhr_cb, rir_cb, wsc_cb, wshr_cb, wmc_cb,
-        std::forward<F>(f)};
+        rc_cb,  rdi_cb,  rhr_cb, rir_cb,
+        wsc_cb, wshr_cb, wmc_cb, std::forward<F>(f)};
   }
 
   auto build() const {
     return ModbusLambdaHandler<RcCbT, RdiCbT, RhrCbT, RirCbT, WscCbT, WshrCbT,
-                                WmcCbT, WmhrCbT>{rc_cb, rdi_cb, rhr_cb, rir_cb,
-                                                  wsc_cb, wshr_cb, wmc_cb,
-                                                  wmhr_cb};
+                               WmcCbT, WmhrCbT>{
+        rc_cb, rdi_cb, rhr_cb, rir_cb, wsc_cb, wshr_cb, wmc_cb, wmhr_cb};
   }
 };
 
-inline auto makeModbusHandler() {
-  return ModbusLambdaHandlerBuilder<>{};
-}
+inline auto makeModbusHandler() { return ModbusLambdaHandlerBuilder<>{}; }
 
 }  // namespace m
 

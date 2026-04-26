@@ -62,9 +62,9 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
     }
   }
 
-  Us<uint32_t> getTick() override { return Us<uint32_t>{htim5_.Instance->CNT}; }
+  Us<uint32_t> now() override { return Us<uint32_t>{htim5_.Instance->CNT}; }
 
-  Us<uint32_t> getDiff(Us<uint32_t> value) override {
+  Us<uint32_t> diff(Us<uint32_t> value) override {
     Us<uint32_t> diff = Us<uint32_t>{htim5_.Instance->CNT};
     diff -= value;
     return diff;
@@ -84,9 +84,9 @@ class TimeMs final : public m::ifc::ITime<Ms<uint32_t>> {
 
   void delay(Ms<uint32_t> value) override { HAL_Delay(value.value()); }
 
-  Ms<uint32_t> getTick() override { return Ms<uint32_t>{HAL_GetTick()}; }
+  Ms<uint32_t> now() override { return Ms<uint32_t>{HAL_GetTick()}; }
 
-  Ms<uint32_t> getDiff(Ms<uint32_t> value) override {
+  Ms<uint32_t> diff(Ms<uint32_t> value) override {
     Ms<uint32_t> diff = Ms<uint32_t>{HAL_GetTick()};
     diff -= value;
     return diff;

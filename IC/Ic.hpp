@@ -16,6 +16,56 @@
 #include <optional>
 #include <tuple>
 
+/**
+ * @brief CRTP base for synchronous register-level IC access.
+ *
+ * Usage:
+ *
+ * ```cpp
+ * struct DevInfo {
+ *   struct Status {
+ *     m::Reg<uint16_t> value;
+ *   };
+ *   struct Config {
+ *     m::Reg<uint16_t> value;
+ *   };
+ *
+ *   using Regs = std::tuple<Status, Config>;
+ *   struct Map : public m::StaticMap<uint8_t, m::Pair<Status, 0x00>,
+ *                                    m::Pair<Config, 0x01>> {};
+ * };
+ *
+ * class Dev : public m::ic::Ic<Dev, DevInfo> {
+ *  public:
+ *   explicit Dev(Bus& bus) : bus_(bus) {}
+ *
+ *  private:
+ *   template <typename Reg>
+ *   bool writeImpl(Reg reg) {
+ *     return busWrite(DevInfo::Map::template value<Reg>(),
+ *                     reg.value.getRaw());
+ *   }
+ *
+ *   template <typename Reg>
+ *   std::optional<Reg> readImpl() {
+ *     auto raw = busRead(DevInfo::Map::template value<Reg>());
+ *     if (!raw) {
+ *       return std::nullopt;
+ *     }
+ *     return Reg{raw.value()};
+ *   }
+ *
+ *   Bus& bus_;
+ *   friend class m::ic::Ic<Dev, DevInfo>;
+ * };
+ *
+ * Dev dev{bus};
+ * DevInfo::Config cfg{};
+ * bool write_ok = dev.write(cfg);
+ * auto status = dev.read<DevInfo::Status>();
+ * ```
+ */
+
 namespace m::ic {
 
 template <typename T>

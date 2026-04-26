@@ -32,7 +32,7 @@ template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
           m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
 class StepPositioner {
  private:
-  using MsT = decltype(std::declval<TimeMsT&>().getTick());
+  using MsT = decltype(std::declval<TimeMsT&>().now());
   using StepT = typename StepGenT::Step;
 
  public:

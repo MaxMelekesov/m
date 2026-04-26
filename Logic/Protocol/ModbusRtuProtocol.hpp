@@ -53,7 +53,7 @@ class [[deprecated("Use ModbusRtuMultiProtocol instead")]] ModbusRtuProtocol {
   };
 
   struct Timings {
-    decltype(std::declval<TimeUsT&>().getTick()) tx_response_delay;
+    decltype(std::declval<TimeUsT&>().now()) tx_response_delay;
   };
 
   // ReadCoils callback

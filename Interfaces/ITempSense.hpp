@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef ITEMPSENSE_H
-#define ITEMPSENSE_H
+#ifndef ITEMPSENSE_HPP
+#define ITEMPSENSE_HPP
 
 #include <concepts>
 
@@ -56,4 +56,4 @@ static_assert(CTempSenseError<ITempSenseError>,
               "ITempSenseError must satisfy CTempSenseError concept");
 }  // namespace m::ifc
 
-#endif  // ITEMPSENSE_H
+#endif  // ITEMPSENSE_HPP

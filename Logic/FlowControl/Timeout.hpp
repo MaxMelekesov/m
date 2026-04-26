@@ -12,43 +12,20 @@
 #define TIMEOUT_HPP
 
 #include <ITime.hpp>
-#include <concepts>
 #include <functional>
 
 namespace m {
 
-template <typename TimeT, typename TimeUnitT>
-  requires m::ifc::CTime<TimeT> && m::ifc::CTimeUnit<TimeUnitT>
-bool execWithTimeout(TimeT& time, const std::function<bool()>& code,
-                     TimeUnitT timeout) {
-  auto start = time.getTick();
-  while (!code()) {
-    if (time.getDiff(start) > timeout) return false;
+template <m::ifc::CTime TimeT, typename Fn>
+  requires std::invocable<Fn&> && std::same_as<std::invoke_result_t<Fn&>, bool>
+bool execWithTimeout(TimeT& time, Fn&& code, typename TimeT::Unit timeout) {
+  auto start = time.now();
+  while (!std::invoke(code)) {
+    if (time.diff(start) > timeout) return false;
   }
   return true;
 }
 
-template <typename TimeUnit>
-class Timeout {
- public:
-  using type = TimeUnit;
-
-  Timeout(ifc::ITime<type>& time) : time_(time) {}
-
-  // Run while code is false and time diff < timeout
-  bool execWithTimeout(const std::function<bool()>& code, type timeout) {
-    auto start = time_.getTick();
-
-    while (!code()) {
-      if (time_.getDiff(start) > timeout) return false;
-    }
-
-    return true;
-  }
-
- private:
-  ifc::ITime<type>& time_;
-};
 }  // namespace m
 
 #endif  // TIMEOUT_HPP

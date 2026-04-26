@@ -10,6 +10,7 @@
 #ifndef ADS1256_HPP
 #define ADS1256_HPP
 
+#include <Bps.hpp>
 #include <IIO_Async.hpp>
 #include <IIt.hpp>
 #include <IPin.hpp>
@@ -21,7 +22,6 @@
 #include <Us.hpp>
 #include <cstdint>
 #include <type_traits>
-#include <utility>
 
 namespace m::ic {
 
@@ -166,17 +166,20 @@ struct Ads1256 {
                            m::Pair<Selfcal, 0xF0>>;
 };
 
-template <m::ifc::CUs Us, m::ifc::CTimeUs Time, m::ifc::CIO_Async Io>
-class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
+template <m::ifc::CTime Time, m::ifc::CIO_Async Io>
+  requires m::ifc::CUs<typename Time::Unit> && m::ifc::CBps<typename Io::Unit>
+class Ads1256Ic : public Ic<Ads1256Ic<Time, Io>, Ads1256> {
  public:
-  Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs, Us add_timeout)
+  using TimeUnit = typename Time::Unit;
+
+  Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs, TimeUnit add_timeout)
       : time_(time), io_(io), cs_(cs), add_timeout_(add_timeout) {}
 
  private:
   Time& time_;
   Io& io_;
   m::ifc::mcu::IPin& cs_;
-  Us add_timeout_;
+  TimeUnit add_timeout_;
 
   std::array<uint8_t, 3> read_buf_;
   std::array<uint8_t, 3> write_buf_;
@@ -215,7 +218,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
       return std::nullopt;
     }
 
-    time_.delay(Us{7});  // t6 datasheet
+    time_.delay(TimeUnit{7});  // t6 datasheet
 
     read_buf_[0] = 0;
     auto read_span = std::span<uint8_t>(read_buf_).first(1);
@@ -241,7 +244,7 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
       return std::nullopt;
     }
 
-    time_.delay(Us{7});  // t6 datasheet
+    time_.delay(TimeUnit{7});  // t6 datasheet
 
     read_buf_.fill(0);
     auto read_span = std::span<uint8_t>(read_buf_).first(3);
@@ -290,12 +293,11 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
   }
 
   bool writeSpan(std::span<const uint8_t> span) {
-    if (!io_.writeAsync(span)) return false;
+    if (!io_.startWrite(span)) return false;
 
     if (!m::execWithTimeout(
-            time_, [&]() { return io_.writeDone(); },
-            Us{span.size() * 1'000'000 / io_.getBaudrate().value()} +
-                add_timeout_)) {
+            time_, [&]() { return io_.isWriteDone(); },
+            transferTimeout(span.size()) + add_timeout_)) {
       return false;
     }
 
@@ -303,29 +305,44 @@ class Ads1256Ic : public Ic<Ads1256Ic<Us, Time, Io>, Ads1256> {
   }
 
   bool readSpan(std::span<uint8_t> span) {
-    if (!io_.readAsync(span)) {
+    if (!io_.startRead(span)) {
       return false;
     }
 
     if (!m::execWithTimeout(
-            time_, [&]() { return io_.readDone(); },
-            Us{span.size() * 1'000'000 / io_.getBaudrate().value()} +
-                add_timeout_)) {
+            time_, [&]() { return io_.isReadDone(); },
+            transferTimeout(span.size()) + add_timeout_)) {
       return false;
     }
 
     return true;
   }
 
-  friend class Ic<Ads1256Ic<Us, Time, Io>, Ads1256>;
+  TimeUnit transferTimeout(std::size_t bytes) {
+    using CalcT = std::common_type_t<std::size_t, typename Io::Unit::type,
+                                     typename TimeUnit::type>;
+    constexpr CalcT Us_In_Second = 1'000'000;
+
+    const CalcT baud = static_cast<CalcT>(io_.getBaudrate().value());
+    if (baud == 0) {
+      return TimeUnit{0};
+    }
+
+    const CalcT bytes_calc = static_cast<CalcT>(bytes);
+    const CalcT tx_time = (bytes_calc * Us_In_Second + baud - 1) / baud;
+    return TimeUnit{static_cast<typename TimeUnit::type>(tx_time)};
+  }
+
+  friend class Ic<Ads1256Ic<Time, Io>, Ads1256>;
 };
 
-template <m::ifc::CUs Us, m::ifc::CTimeUs Time, m::ifc::CIO_Async Io>
-Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs, Us add_timeout)
-    -> Ads1256Ic<Us, Time, Io>;
+template <m::ifc::CTime Time, m::ifc::CIO_Async Io>
+  requires m::ifc::CUs<typename Time::Unit> && m::ifc::CBps<typename Io::Unit>
+Ads1256Ic(Time& time, Io& io, m::ifc::mcu::IPin& cs,
+          typename Time::Unit add_timeout) -> Ads1256Ic<Time, Io>;
 
-template <m::ifc::CUs Us, m::ifc::CTimeUs Time, m::ifc::CIO_Async Io,
-          m::ifc::mcu::CIt It>
+template <m::ifc::CTime Time, m::ifc::CIO_Async Io, m::ifc::mcu::CIt It>
+  requires m::ifc::CUs<typename Time::Unit> && m::ifc::CBps<typename Io::Unit>
 class Ads1256Reader {
  public:
   Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& drdy)
@@ -362,7 +379,7 @@ class Ads1256Reader {
   }
 
   bool startRead(std::span<int32_t> data) {
-    if (!readDone()) return false;
+    if (!isReadDone()) return false;
 
     data_ = data;
     size_ = data_.size();
@@ -371,7 +388,7 @@ class Ads1256Reader {
     return true;
   }
 
-  bool readDone() { return !drdy_.running(); }
+  bool isReadDone() { return !drdy_.running(); }
 
   std::size_t readed() { return size_ - data_.size(); }
 
@@ -388,7 +405,7 @@ class Ads1256Reader {
   m::ifc::mcu::IPin& cs_;
   It& drdy_;
 
-  Ads1256Ic<Us, Time, Io> adc_ic_{time_, io_, cs_, Us{20}};
+  Ads1256Ic<Time, Io> adc_ic_{time_, io_, cs_, typename Time::Unit{20}};
 
   std::span<int32_t> data_;
   std::size_t size_;
@@ -399,16 +416,15 @@ class Ads1256Reader {
   int32_t last_value_ = 0;
 };
 
-template <m::ifc::CTimeUs Time, m::ifc::CIO_Async Io, m::ifc::mcu::CIt It>
+template <m::ifc::CTime Time, m::ifc::CIO_Async Io, m::ifc::mcu::CIt It>
+  requires m::ifc::CUs<typename Time::Unit> && m::ifc::CBps<typename Io::Unit>
 Ads1256Reader(Time& time, Io& io, m::ifc::mcu::IPin& cs, It& drdy)
-    -> Ads1256Reader<
-        std::remove_cvref_t<decltype(std::declval<Time&>().getTick())>, Time,
-        Io, It>;
+    -> Ads1256Reader<Time, Io, It>;
 
 template <typename T>
 concept CAds1256Reader = requires(T& reader, std::span<int32_t> data) {
   { reader.startRead(data) } -> std::same_as<bool>;
-  { reader.readDone() } -> std::same_as<bool>;
+  { reader.isReadDone() } -> std::same_as<bool>;
   { reader.readed() } -> std::convertible_to<std::size_t>;
   { reader.stopRead() } -> std::same_as<bool>;
   { reader.lastValue() } -> std::same_as<int32_t>;

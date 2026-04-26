@@ -8,36 +8,42 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef IERRORTRACER_H
-#define IERRORTRACER_H
+#ifndef IERRORTRACER_HPP
+#define IERRORTRACER_HPP
 
+#include <concepts>
 #include <span>
 
 namespace m::ifc {
 
-template <typename T>
+template <typename UnitT>
 class IErrorTracer {
  public:
-  using type = T;
+  using Unit = UnitT;
 
   virtual ~IErrorTracer() {}
 
-  virtual bool add(type value) = 0;
+  virtual bool add(Unit value) = 0;
   virtual void clear() = 0;
-  virtual std::span<type> getTrace() = 0;
+  virtual std::span<Unit> getTrace() = 0;
 };
 
-template <typename T>
-concept CErrorTracer = requires(T tracer, typename T::type value) {
-  typename T::type;
+template <typename TracerT, typename UnitT>
+concept CErrorTracerOf = requires(TracerT& tracer, UnitT value) {
   { tracer.add(value) } -> std::same_as<bool>;
   { tracer.clear() } -> std::same_as<void>;
-  { tracer.getTrace() } -> std::same_as<std::span<typename T::type>>;
+  { tracer.getTrace() } -> std::same_as<std::span<UnitT>>;
 };
+
+template <typename TracerT>
+concept CErrorTracer = requires { typename TracerT::Unit; } &&
+                       CErrorTracerOf<TracerT, typename TracerT::Unit>;
 
 static_assert(CErrorTracer<IErrorTracer<int>>,
               "IErrorTracer must satisfy CErrorTracer concept");
+static_assert(CErrorTracerOf<IErrorTracer<int>, int>,
+              "IErrorTracer<int> must satisfy CErrorTracerOf<int> concept");
 
 }  // namespace m::ifc
 
-#endif  // IERRORTRACER_H
+#endif  // IERRORTRACER_HPP

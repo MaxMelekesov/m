@@ -17,6 +17,7 @@
 #include <IDataLink.hpp>
 #include <IPin.hpp>
 #include <ITime.hpp>
+#include <Us.hpp>
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -27,8 +28,9 @@
 
 namespace m {
 
-template <m::ifc::CTimeUs TimeUsT, m::ifc::mcu::CPin PintT,
+template <m::ifc::CTime TimeUsT, m::ifc::mcu::CPin PintT,
           std::size_t AddrCount = 1>
+  requires m::ifc::CUs<typename TimeUsT::Unit>
 class ModbusRtuMultiProtocol {
  public:
   enum class Commands : uint8_t {
@@ -56,7 +58,7 @@ class ModbusRtuMultiProtocol {
   };
 
   struct Timings {
-    decltype(std::declval<TimeUsT&>().getTick()) tx_response_delay;
+    decltype(std::declval<TimeUsT&>().now()) tx_response_delay;
   };
 
   // ReadCoils callback
@@ -720,7 +722,8 @@ class ModbusRtuMultiProtocol {
   }
 };
 
-template <m::ifc::CTimeUs TimeUsT, m::ifc::mcu::CPin PintT>
+template <m::ifc::CTime TimeUsT, m::ifc::mcu::CPin PintT>
+  requires m::ifc::CUs<typename TimeUsT::Unit>
 ModbusRtuMultiProtocol(m::ifc::IDataLink&, TimeUsT&,
                        typename ModbusRtuMultiProtocol<TimeUsT, PintT>::Timings,
                        std::span<uint8_t>, std::span<uint8_t>, PintT&, PintT&)

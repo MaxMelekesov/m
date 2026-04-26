@@ -18,7 +18,7 @@ namespace m {
 
 template <m::ifc::CTime TimeT>
 class PtDelay : public Proto<PtDelay<TimeT>> {
-  using Tick = decltype(std::declval<TimeT&>().getTick());
+  using Tick = decltype(std::declval<TimeT&>().now());
 
   TimeT& time_;
   Tick duration_{};
@@ -34,8 +34,8 @@ class PtDelay : public Proto<PtDelay<TimeT>> {
 
   PtStatus run() {
     PT_BEGIN();
-    start_ = time_.getTick();
-    PT_WAIT_UNTIL(time_.getDiff(start_) >= duration_);
+    start_ = time_.now();
+    PT_WAIT_UNTIL(time_.diff(start_) >= duration_);
     PT_END();
   }
 };

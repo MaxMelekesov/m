@@ -18,6 +18,7 @@
 #include <bit>
 #include <bitset>
 #include <optional>
+#include <type_traits>
 
 namespace m {
 
@@ -31,11 +32,15 @@ concept EnumClassWithSize = EnumClass<T> && requires {
   requires std::is_same_v<decltype(T::Size), T>;
 };
 
-template <m::ifc::CMs MsT, EnumClassWithSize ErrorT>
+template <m::ifc::mcu::CPin PinT, m::ifc::CTime TimeT, EnumClassWithSize ErrorT>
+  requires m::ifc::CMs<typename TimeT::Unit>
 class ErrorLedIndicator {
  public:
-  ErrorLedIndicator(ifc::mcu::IPin& led, ifc::ITime<MsT>& time,
-                    MsT long_flash = MsT{1000}, MsT short_flash = MsT{200},
+  using Error = ErrorT;
+  using MsT = typename TimeT::Unit;
+
+  ErrorLedIndicator(PinT& led, TimeT& time, MsT long_flash = MsT{1000},
+                    MsT short_flash = MsT{200},
                     MsT pause_between_flashes = MsT{1000},
                     MsT pause_between_sequences = MsT{5000})
       : led_(led),
@@ -106,8 +111,8 @@ class ErrorLedIndicator {
   }
 
  private:
-  ifc::mcu::IPin& led_;
-  ifc::ITime<MsT>& time_;
+  PinT& led_;
+  TimeT& time_;
   Timer<MsT> timer_;
 
   std::optional<ErrorT> error_code_;

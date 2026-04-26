@@ -18,7 +18,7 @@
 namespace m::ifc {
 
 template <CBps Baudrate>
-class IIO_Sync {
+class [[deprecated("remove")]] IIO_Sync {
  public:
   virtual ~IIO_Sync() {}
 
@@ -32,19 +32,19 @@ class IIO_Sync {
 };
 
 template <typename T>
-concept CIO_Sync = requires(T io, std::span<uint8_t> rx_buf,
-                            std::span<const uint8_t> tx_buf) {
-  { io.write(tx_buf) } -> std::same_as<bool>;
-  { io.read(rx_buf) } -> std::same_as<bool>;
+concept CIO_Sync =
+    requires(T io, std::span<uint8_t> rx_buf, std::span<const uint8_t> tx_buf) {
+      { io.write(tx_buf) } -> std::same_as<bool>;
+      { io.read(rx_buf) } -> std::same_as<bool>;
 
-  requires CBps<std::remove_cvref_t<decltype(io.getBaudrate())>>;
-  requires requires(
-      typename std::remove_cvref_t<decltype(io.getBaudrate())> baud) {
-    { io.setBaudrate(baud) } -> std::same_as<bool>;
-  };
+      requires CBps<std::remove_cvref_t<decltype(io.getBaudrate())>>;
+      requires requires(
+          typename std::remove_cvref_t<decltype(io.getBaudrate())> baud) {
+        { io.setBaudrate(baud) } -> std::same_as<bool>;
+      };
 
-  { io.error() } -> std::same_as<bool>;
-};
+      { io.error() } -> std::same_as<bool>;
+    };
 
 static_assert(CIO_Sync<IIO_Sync<Bps<uint32_t>>>,
               "IIO_Sync must satisfy CIO_Sync concept");

@@ -21,7 +21,7 @@
 namespace m::ifc {
 
 template <CBps Baudrate, typename TimeUnitT, m::ifc::CTime<TimeUnitT> TimeT>
-class IoSyncAdapter : public IIO_Sync<Baudrate> {
+class [[deprecated("remove")]] IoSyncAdapter : public IIO_Sync<Baudrate> {
  public:
   IoSyncAdapter(
       IIO_Async<Baudrate>& io, TimeT& time,
@@ -29,16 +29,16 @@ class IoSyncAdapter : public IIO_Sync<Baudrate> {
       : io_(io), time_(time), calc_timeout_(std::move(calc_timeout)) {}
 
   bool write(std::span<uint8_t const> data) override {
-    if (!io_.writeAsync(data)) return false;
+    if (!io_.startWrite(data)) return false;
     return m::execWithTimeout(
-        time_, [&]() { return io_.writeDone(); },
+        time_, [&]() { return io_.isWriteDone(); },
         calc_timeout_(io_.getBaudrate(), data.size()));
   }
 
   bool read(std::span<uint8_t> data) override {
-    if (!io_.readAsync(data)) return false;
+    if (!io_.startRead(data)) return false;
     return m::execWithTimeout(
-        time_, [&]() { return io_.readDone(); },
+        time_, [&]() { return io_.isReadDone(); },
         calc_timeout_(io_.getBaudrate(), data.size()));
   }
 

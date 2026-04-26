@@ -27,7 +27,7 @@ class ModbusRtuMasterWrapper {
  private:
   using Unit = typename Mdbs::Unit;
   using Error = typename Mdbs::Error;
-  using UsT = decltype(std::declval<TimeUsT>().getTick());
+  using UsT = decltype(std::declval<TimeUsT>().now());
 
  public:
   ModbusRtuMasterWrapper(Mdbs& modbus, TimeUsT& time)

@@ -10,6 +10,7 @@
 #ifndef FDC1004_HPP
 #define FDC1004_HPP
 
+#include <Bps.hpp>
 #include <DebugLogger.hpp>
 #include <Fsm_v4.hpp>
 #include <IIO_Async.hpp>
@@ -23,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <type_traits>
 
 namespace m::ic {
 
@@ -228,17 +230,19 @@ struct Fdc1004 {
                    m::Pair<Device, 0xFF>> {};
 };
 
-template <m::ifc::CUs UsT, m::ifc::CTimeUs TimeT, m::ifc::CIO_Async IoT>
-class Fdc1004Sync : public Ic<Fdc1004Sync<UsT, TimeT, IoT>, Fdc1004> {
+template <m::ifc::CTime TimeT, m::ifc::CIO_Async IoT>
+  requires m::ifc::CUs<typename TimeT::Unit> && m::ifc::CBps<typename IoT::Unit>
+class Fdc1004Sync : public Ic<Fdc1004Sync<TimeT, IoT>, Fdc1004> {
  public:
-  Fdc1004Sync(TimeT& time, IoT& io, UsT add_timeout)
+  using TimeUnit = typename TimeT::Unit;
+
+  Fdc1004Sync(TimeT& time, IoT& io, TimeUnit add_timeout)
       : time_(time), io_(io), add_timeout_(add_timeout) {}
 
  private:
   TimeT& time_;
   IoT& io_;
-  UsT add_timeout_;
-  m::Timeout<UsT> timeout_{time_};
+  TimeUnit add_timeout_;
 
   constexpr static uint8_t Addr = 0x50;
 
@@ -282,12 +286,11 @@ class Fdc1004Sync : public Ic<Fdc1004Sync<UsT, TimeT, IoT>, Fdc1004> {
   }
 
   bool writeSpan(std::span<const uint8_t> span) {
-    if (!io_.writeAsync(span)) return false;
+    if (!io_.startWrite(span)) return false;
 
-    if (!timeout_.execWithTimeout(
-            [&]() { return io_.writeDone(); },
-            span.size() * UsT{1'000} / io_.getBaudrate().value() +
-                add_timeout_)) {
+    if (!m::execWithTimeout(
+            time_, [&]() { return io_.isWriteDone(); },
+            transferTimeout(span.size()) + add_timeout_)) {
       return false;
     }
 
@@ -295,24 +298,39 @@ class Fdc1004Sync : public Ic<Fdc1004Sync<UsT, TimeT, IoT>, Fdc1004> {
   }
 
   bool readSpan(std::span<uint8_t> span) {
-    if (!io_.readAsync(read_buf_)) return false;
+    if (!io_.startRead(read_buf_)) return false;
 
-    if (!timeout_.execWithTimeout(
-            [&]() { return io_.readDone(); },
-            span.size() * UsT{1'000} / io_.getBaudrate().value() +
-                add_timeout_)) {
+    if (!m::execWithTimeout(
+            time_, [&]() { return io_.isReadDone(); },
+            transferTimeout(span.size()) + add_timeout_)) {
       return false;
     }
 
     return true;
   }
 
-  friend class Ic<Fdc1004Sync<UsT, TimeT, IoT>, Fdc1004>;
+  TimeUnit transferTimeout(std::size_t bytes) {
+    using CalcT = std::common_type_t<std::size_t, typename IoT::Unit::type,
+                                     typename TimeUnit::type>;
+    constexpr CalcT Timeout_Scale = 1'000;
+
+    const CalcT baud = static_cast<CalcT>(io_.getBaudrate().value());
+    if (baud == 0) {
+      return TimeUnit{0};
+    }
+
+    const CalcT bytes_calc = static_cast<CalcT>(bytes);
+    const CalcT tx_time = (bytes_calc * Timeout_Scale + baud - 1) / baud;
+    return TimeUnit{static_cast<typename TimeUnit::type>(tx_time)};
+  }
+
+  friend class Ic<Fdc1004Sync<TimeT, IoT>, Fdc1004>;
 };
 
-template <m::ifc::CUs UsT, m::ifc::CTimeUs TimeT, m::ifc::CIO_Async IoT>
-Fdc1004Sync(TimeT& time, IoT& io, UsT add_timeout)
-    -> Fdc1004Sync<UsT, TimeT, IoT>;
+template <m::ifc::CTime TimeT, m::ifc::CIO_Async IoT>
+  requires m::ifc::CUs<typename TimeT::Unit> && m::ifc::CBps<typename IoT::Unit>
+Fdc1004Sync(TimeT& time, IoT& io, typename TimeT::Unit add_timeout)
+    -> Fdc1004Sync<TimeT, IoT>;
 
 namespace detail {
 struct Idle : public m::State {};
@@ -379,10 +397,10 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<IoT>, Idle,
     writeAddr(addr_);
   }
 
-  bool checkEvent(Wait, ReadReg) { return io_.writeDone(); }
+  bool checkEvent(Wait, ReadReg) { return io_.isWriteDone(); }
   void handleEvent(Wait, ReadReg) { readReg(); }
 
-  bool checkEvent(WaitReg, ReadDone) { return io_.readDone(); }
+  bool checkEvent(WaitReg, ReadDone) { return io_.isReadDone(); }
   void handleEvent(WaitReg, ReadDone) {
     reg_ = (static_cast<uint16_t>(read_buf_[1]) << 8) | read_buf_[2];
   }
@@ -415,7 +433,7 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<IoT>, Idle,
     write_buf_[0] = Addr;
     write_buf_[1] = reg_addr;
 
-    io_.writeAsync(write_buf_);
+    io_.startWrite(write_buf_);
   }
 
   void readReg() {
@@ -423,7 +441,7 @@ class FsmReadReg : public m::Fsm_v4<FsmReadReg<IoT>, Idle,
     read_buf_[1] = 0;
     read_buf_[2] = 0;
 
-    io_.readAsync(read_buf_);
+    io_.startRead(read_buf_);
   }
 };
 }  // namespace detail
@@ -463,7 +481,7 @@ class Fdc1004Reader
     return true;
   }
 
-  bool readDone() { return data_.empty(); }
+  bool isReadDone() { return data_.empty(); }
 
   std::size_t readed() { return size_ - data_.size(); }
 
@@ -592,7 +610,7 @@ Fdc1004Reader(IoT& io) -> Fdc1004Reader<IoT>;
 template <typename T>
 concept CFdc1004Reader = requires(T& reader, std::span<int32_t> data) {
   { reader.start(data) } -> std::same_as<bool>;
-  { reader.readDone() } -> std::same_as<bool>;
+  { reader.isReadDone() } -> std::same_as<bool>;
   { reader.readed() } -> std::convertible_to<std::size_t>;
   { reader.handle() } -> std::same_as<void>;
 };

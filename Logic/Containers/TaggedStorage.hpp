@@ -63,7 +63,7 @@ struct TaggedStorage<FirstTag, RestTags...> {
   using type = std::tuple<FirstTag, RestTags...>;
 
   typename FirstTag::ValueType value;
-  TaggedStorage<RestTags...> rest;
+  [[no_unique_address]] TaggedStorage<RestTags...> rest;
 
   constexpr TaggedStorage() : value(FirstTag::default_value), rest() {}
 

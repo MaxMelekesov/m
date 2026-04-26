@@ -259,11 +259,11 @@ class SSD1306 {
 
   [[nodiscard]] auto sendPacket(std::span<const uint8_t> packet)
       -> m::Task<bool> {
-    if (!io_.writeAsync(packet)) {
+    if (!io_.startWrite(packet)) {
       co_return false;
     }
 
-    co_await m::coroUntil([this] { return io_.writeDone(); });
+    co_await m::coroUntil([this] { return io_.isWriteDone(); });
 
     if (io_.error()) {
       co_return false;

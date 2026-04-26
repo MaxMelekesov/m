@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef IMEMORY_H
-#define IMEMORY_H
+#ifndef IMEMORY_HPP
+#define IMEMORY_HPP
 
 #include <cstdint>
 #include <span>
@@ -34,6 +34,7 @@ concept CMemory =
     };
 
 static_assert(CMemory<IMemory>, "IMemory must satisfy CMemory concept");
+
 }  // namespace m::ifc
 
-#endif  // IMEMORY_H
+#endif  // IMEMORY_HPP

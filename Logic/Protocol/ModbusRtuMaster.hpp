@@ -23,7 +23,7 @@ namespace m {
 template <m::ifc::CIO_Async IoT, m::ifc::CTimeUs TimeUsT>
 class ModbusRtuMaster {
  public:
-  using UsType = decltype(std::declval<TimeUsT>().getTick());
+  using UsType = decltype(std::declval<TimeUsT>().now());
 
   struct Timings {
     UsType rx_delay;
@@ -76,7 +76,7 @@ class ModbusRtuMaster {
     unit_.start_reg_ = (unit_.start_reg_ << 8) | (unit_.start_reg_ >> 8);
     unit_.reg_count_ = (unit_.reg_count_ << 8) | (unit_.reg_count_ >> 8);
     unit_.crc_ = crc16(std::span<uint8_t>{buf_tx.data(), buf_tx.size() - 2});
-    if (!io_.writeAsync(buf_tx)) {
+    if (!io_.startWrite(buf_tx)) {
       return false;
     }
 
@@ -108,7 +108,7 @@ class ModbusRtuMaster {
     unit_.reg_count_ = (unit_.reg_count_ << 8) | (unit_.reg_count_ >> 8);
     unit_.crc_ = crc16(std::span<uint8_t>{buf_tx.data(), buf_tx.size() - 2});
 
-    if (!io_.writeAsync(buf_tx)) {
+    if (!io_.startWrite(buf_tx)) {
       return false;
     }
 
@@ -160,7 +160,7 @@ class ModbusRtuMaster {
     request_buf[request_buf.size() - 2] = crc;
     request_buf[request_buf.size() - 1] = crc >> 8;
 
-    if (!io_.writeAsync(request_buf)) {
+    if (!io_.startWrite(request_buf)) {
       return false;
     }
 
@@ -261,7 +261,7 @@ class ModbusRtuMaster {
       case State::Idle:
         break;
       case State::WaitTx: {
-        if (io_.writeDone()) {
+        if (io_.isWriteDone()) {
           start_rx_timer_.restart(timings_.rx_delay);
 
           state_ = State::StartRx;
@@ -275,7 +275,7 @@ class ModbusRtuMaster {
 
       case State::StartRx: {
         if (start_rx_timer_.timeOver()) {
-          if (!io_.readAsync(response_buf_)) {
+          if (!io_.startRead(response_buf_)) {
             io_.abortRead();
             state_ = State::Idle;
           } else {
@@ -289,13 +289,13 @@ class ModbusRtuMaster {
       } break;
 
       case State::WaitRx: {
-        if (io_.readDone()) {
+        if (io_.isReadDone()) {
           response_ = response_buf_;
           state_ = State::Idle;
         } else {
           if (rx_timer_.timeOver()) {
             response_ =
-                std::span<uint8_t>{response_buf_.data(), io_.bytesAvailable()};
+                std::span<uint8_t>{response_buf_.data(), io_.bytesReaded()};
             io_.abortRead();
             state_ = State::Idle;
           }

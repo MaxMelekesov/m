@@ -15,7 +15,7 @@
 #include <span>
 
 namespace m::ifc {
-class IFlashMemoryAsync {
+class [[deprecated("remove")]] IFlashMemoryAsync {
  public:
   virtual ~IFlashMemoryAsync() {}
 
@@ -26,10 +26,10 @@ class IFlashMemoryAsync {
   virtual bool eraseDone() = 0;
 
   virtual bool startWrite(std::size_t addr, std::span<uint8_t const> data) = 0;
-  virtual bool writeDone() = 0;
+  virtual bool isWriteDone() = 0;
 
   virtual bool startRead(std::size_t addr, std::span<uint8_t> data) = 0;
-  virtual bool readDone() = 0;
+  virtual bool isReadDone() = 0;
 
   virtual bool error() = 0;
 };
@@ -43,9 +43,9 @@ concept CFlashMemoryAsync =
       { mem.startErase(addr, sz) } -> std::same_as<bool>;
       { mem.eraseDone() } -> std::same_as<bool>;
       { mem.startWrite(addr, wdata) } -> std::same_as<bool>;
-      { mem.writeDone() } -> std::same_as<bool>;
+      { mem.isWriteDone() } -> std::same_as<bool>;
       { mem.startRead(addr, rdata) } -> std::same_as<bool>;
-      { mem.readDone() } -> std::same_as<bool>;
+      { mem.isReadDone() } -> std::same_as<bool>;
       { mem.error() } -> std::same_as<bool>;
     };
 

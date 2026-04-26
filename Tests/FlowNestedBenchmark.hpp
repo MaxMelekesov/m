@@ -95,7 +95,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
   volatile uint32_t payload_sink = 0;
   uint32_t payload_sum_us = 0;
   for (int r = 0; r < kRounds; ++r) {
-    const auto t0 = hw.timeUs().getTick();
+    const auto t0 = hw.timeUs().now();
     for (int i = 0; i < kIter; ++i) {
       payload_state = 0x12345678u ^ static_cast<uint32_t>((r << 16) + i);
       for (uint32_t lvl = static_cast<uint32_t>(kDepth); lvl-- > 0;) {
@@ -103,7 +103,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
       }
       payload_sink ^= payload_state;
     }
-    payload_sum_us += hw.timeUs().getDiff(t0).value();
+    payload_sum_us += hw.timeUs().diff(t0).value();
   }
   const uint32_t payload_avg_us = payload_sum_us / static_cast<uint32_t>(kRounds);
 
@@ -126,7 +126,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
 
   uint32_t chain_sum_us = 0;
   for (int r = 0; r < kRounds; ++r) {
-    const auto t0 = hw.timeUs().getTick();
+    const auto t0 = hw.timeUs().now();
     for (int i = 0; i < kIter; ++i) {
       chain_state = 0x12345678u ^ static_cast<uint32_t>((r << 16) + i);
       chain_level = static_cast<uint32_t>(kDepth - 1);
@@ -135,7 +135,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
       }
       chain_sink ^= chain_state;
     }
-    chain_sum_us += hw.timeUs().getDiff(t0).value();
+    chain_sum_us += hw.timeUs().diff(t0).value();
   }
   const uint32_t chain_avg_us = chain_sum_us / static_cast<uint32_t>(kRounds);
 #else
@@ -178,7 +178,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
 
   uint32_t chain_sum_us = 0;
   for (int r = 0; r < kRounds; ++r) {
-    const auto t0 = hw.timeUs().getTick();
+    const auto t0 = hw.timeUs().now();
     for (int i = 0; i < kIter; ++i) {
       chain_state = 0x12345678u ^ static_cast<uint32_t>((r << 16) + i);
 
@@ -201,7 +201,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
       ct14.handle();
       chain_sink ^= chain_state;
     }
-    chain_sum_us += hw.timeUs().getDiff(t0).value();
+    chain_sum_us += hw.timeUs().diff(t0).value();
   }
   const uint32_t chain_avg_us = chain_sum_us / static_cast<uint32_t>(kRounds);
 #endif
@@ -228,13 +228,13 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
     volatile bool done = false;
 
     [[maybe_unused]] auto round_task = [&]() -> m::Task<void> {
-      const auto t0 = hw.timeUs().getTick();
+      const auto t0 = hw.timeUs().now();
       for (int i = 0; i < kIter; ++i) {
         coro_state = 0x12345678u ^ static_cast<uint32_t>((r << 16) + i);
         co_await coroNested(coroNested, kDepth - 1, &coro_state);
         coro_sink ^= coro_state;
       }
-      coro_sum_us += hw.timeUs().getDiff(t0).value();
+      coro_sum_us += hw.timeUs().diff(t0).value();
       done = true;
       co_return;
     }();
@@ -259,7 +259,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
   pt_sched.add(pt_root);
   uint32_t pt_sum_us = 0;
   for (int r = 0; r < kRounds; ++r) {
-    const auto t0 = hw.timeUs().getTick();
+    const auto t0 = hw.timeUs().now();
     for (int i = 0; i < kIter; ++i) {
       pt_state = 0x12345678u ^ static_cast<uint32_t>((r << 16) + i);
       pt_root.reset();
@@ -268,7 +268,7 @@ void runNested15Benchmark(Hardware& hw, m::IO_AsyncLog<Line_Length, Lines>& log)
       }
       pt_sink ^= pt_state;
     }
-    pt_sum_us += hw.timeUs().getDiff(t0).value();
+    pt_sum_us += hw.timeUs().diff(t0).value();
   }
   pt_sched.remove(pt_root);
   const uint32_t pt_avg_us = pt_sum_us / static_cast<uint32_t>(kRounds);

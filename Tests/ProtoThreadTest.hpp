@@ -26,9 +26,9 @@ class FakeTimeMs {
  public:
   void advance(Ms<uint32_t> dt) { tick_ += dt; }
 
-  Ms<uint32_t> getTick() { return tick_; }
+  Ms<uint32_t> now() { return tick_; }
 
-  Ms<uint32_t> getDiff(Ms<uint32_t> start) {
+  Ms<uint32_t> diff(Ms<uint32_t> start) {
     return Ms<uint32_t>(tick_.value() - start.value());
   }
 

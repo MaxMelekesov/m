@@ -39,12 +39,12 @@ class DataLinkAsync : public ifc::IDataLink {
   }
 
   bool startReceive(std::span<uint8_t> rx_buf) override {
-    if (!io_.readDone()) return false;
+    if (!io_.isReadDone()) return false;
     rx_buf_ = rx_buf;
     if (!io_.abortRead()) {
       return false;
     }
-    if (!io_.readAsync(rx_buf_)) {
+    if (!io_.startRead(rx_buf_)) {
       return false;
     }
 
@@ -61,9 +61,9 @@ class DataLinkAsync : public ifc::IDataLink {
   }
 
   std::optional<std::span<uint8_t>> getPacket() override {
-    auto bytes = io_.bytesAvailable();
+    auto bytes = io_.bytesReaded();
     if (bytes == rx_buf_.size()) {
-      if (io_.readDone())
+      if (io_.isReadDone())
         return rx_buf_;
       else
         return std::nullopt;
@@ -91,7 +91,7 @@ class DataLinkAsync : public ifc::IDataLink {
     if (!io_.abortWrite()) {
       return false;
     }
-    if (!io_.writeAsync(tx_buf)) {
+    if (!io_.startWrite(tx_buf)) {
       return false;
     }
 
@@ -111,7 +111,7 @@ class DataLinkAsync : public ifc::IDataLink {
   }
 
   std::optional<bool> transmitDone() override {
-    if (io_.writeDone()) {
+    if (io_.isWriteDone()) {
       if (!io_.abortWrite()) {
         return false;
       }

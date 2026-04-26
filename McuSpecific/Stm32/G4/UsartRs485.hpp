@@ -24,9 +24,9 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
   UsartRs485(m::ifc::mcu::IPin& dr_en, UART_HandleTypeDef& huart, uint32_t baud)
       : dr_en_(dr_en), huart_(huart), baud_(baud) {}
 
-  std::size_t bytesToWrite() override { return huart_.hdmatx->Instance->CNDTR; }
+  std::size_t bytesWritten() override { return huart_.hdmatx->Instance->CNDTR; }
 
-  bool writeAsync(std::span<uint8_t const> data) override {
+  bool startWrite(std::span<uint8_t const> data) override {
     dr_en_.write(1);
     auto res = (HAL_UART_Transmit_DMA(&huart_, (uint8_t*)data.data(),
                                       data.size()) == HAL_OK);
@@ -46,9 +46,9 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return res;
   }
 
-  bool writeDone() override {
+  bool isWriteDone() override {
     if (dma_tx_started_) {
-      if (bytesToWrite() == 0) {
+      if (bytesWritten() == 0) {
         if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
           dma_tx_started_ = false;
           return true;
@@ -61,11 +61,11 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return true;
   }
 
-  std::size_t bytesAvailable() override {
+  std::size_t bytesReaded() override {
     return rx_size_ - huart_.hdmarx->Instance->CNDTR;
   }
 
-  bool readAsync(std::span<uint8_t> data) override {
+  bool startRead(std::span<uint8_t> data) override {
     dr_en_.write(0);
     bool res = (HAL_UART_Receive_DMA(&huart_, (uint8_t*)data.data(),
                                      data.size()) == HAL_OK);
@@ -86,9 +86,9 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return res;
   }
 
-  bool readDone() override {
+  bool isReadDone() override {
     if (dma_rx_started_) {
-      if (bytesAvailable() == rx_size_) {
+      if (bytesReaded() == rx_size_) {
         if (abortRead()) {
           if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
             return true;

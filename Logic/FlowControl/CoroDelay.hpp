@@ -20,10 +20,10 @@ namespace m {
 
 template <m::ifc::CTime TimeT>
 inline auto coroDelay(TimeT& time,
-                      decltype(std::declval<TimeT&>().getTick()) delay)
+                      decltype(std::declval<TimeT&>().now()) delay)
     -> m::Task<void> {
-  auto start = time.getTick();
-  co_await m::coroUntil([&] { return time.getDiff(start) >= delay; });
+  auto start = time.now();
+  co_await m::coroUntil([&] { return time.diff(start) >= delay; });
 }
 
 }  // namespace m

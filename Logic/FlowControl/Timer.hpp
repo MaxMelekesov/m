@@ -29,7 +29,7 @@ class Timer {
 
   [[nodiscard]] bool start(type value) {
     if (running_) return false;
-    start_ = time_.getTick();
+    start_ = time_.now();
     wait_ = value;
     running_ = true;
     return true;
@@ -37,7 +37,7 @@ class Timer {
 
   bool reset() {
     if (!running_) return false;
-    start_ = time_.getTick();
+    start_ = time_.now();
     return true;
   }
 
@@ -47,7 +47,7 @@ class Timer {
 
   bool timeOver() {
     if (!running_) return false;
-    return time_.getDiff(start_) >= wait_;
+    return time_.diff(start_) >= wait_;
   }
 
   bool updateTimeout(type value) {

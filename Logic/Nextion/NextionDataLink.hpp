@@ -31,12 +31,12 @@ class NextionDataLink {
       : io_(io), tx_timeout_timer_{time}, rx_timeout_timer_(time) {}
 
   bool startReceive(std::span<uint8_t> rx_buf) {
-    if (!io_.readDone()) return false;
+    if (!io_.isReadDone()) return false;
     rx_buf_ = rx_buf;
     if (!io_.abortRead()) {
       return false;
     }
-    if (!io_.readAsync(rx_buf_)) {
+    if (!io_.startRead(rx_buf_)) {
       return false;
     }
 
@@ -46,7 +46,7 @@ class NextionDataLink {
   }
 
   std::optional<m::ifc::RingSpan> getPacket() {
-    auto tail = io_.bytesAvailable();
+    auto tail = io_.bytesReaded();
     if (tail == scan_pos_) {
       // Нет новых байт, проверяем таймаут
       if (rx_timeout_timer_.timeOver() && head_ != scan_pos_) {
@@ -119,7 +119,7 @@ class NextionDataLink {
     if (!io_.abortWrite()) {
       return false;
     }
-    if (!io_.writeAsync(tx_buf)) {
+    if (!io_.startWrite(tx_buf)) {
       return false;
     }
 
@@ -130,7 +130,7 @@ class NextionDataLink {
   }
 
   std::optional<bool> transmitDone() {
-    if (io_.writeDone()) {
+    if (io_.isWriteDone()) {
       if (!io_.abortWrite()) {
         return false;
       }

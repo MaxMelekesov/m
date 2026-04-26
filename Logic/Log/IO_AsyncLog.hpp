@@ -51,11 +51,11 @@ class IO_AsyncLog : public m::ifc::ILog {
     auto& line = buffer_[read_index_];
     auto length = std::strlen(line.data());
 
-    if (!io_.writeDone()) {
+    if (!io_.isWriteDone()) {
       return;
     }
 
-    if (io_.writeAsync(std::span<const uint8_t>(
+    if (io_.startWrite(std::span<const uint8_t>(
             reinterpret_cast<const uint8_t*>(line.data()), length))) {
       read_index_ = (read_index_ + 1) % Lines;
     } else {

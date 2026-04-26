@@ -14,6 +14,7 @@
 #include <Unit.hpp>
 #include <type_traits>
 
+// Bytes per second
 template <typename T>
 struct Bps : public Unit<Bps<T>, T> {
  public:

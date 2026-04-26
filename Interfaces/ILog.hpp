@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef ILOG_H
-#define ILOG_H
+#ifndef ILOG_HPP
+#define ILOG_HPP
 
 #include <string_view>
 
@@ -31,4 +31,4 @@ concept CLog = requires(T log, std::string_view text) {
 static_assert(CLog<ILog>, "ILog must satisfy CLog concept");
 }  // namespace m::ifc
 
-#endif  // ILOG_H
+#endif  // ILOG_HPP

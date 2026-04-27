@@ -54,33 +54,30 @@ auto makeModbusAddressNode(HandlerT&& handler)
       std::forward<HandlerT>(handler)};
 }
 
-namespace detail {
-
-template <typename Node>
-consteval bool isModbusNode() {
-  return requires {
-    typename Node::Handler;
-    { Node::address } -> std::convertible_to<uint8_t>;
-  };
-}
-
-template <typename FirstNode>
-consteval bool uniqueNodeAddresses() {
-  return true;
-}
-
-template <typename FirstNode, typename SecondNode, typename... RestNodes>
-consteval bool uniqueNodeAddresses() {
-  return (FirstNode::address != SecondNode::address) &&
-         ((FirstNode::address != RestNodes::address) && ...) &&
-         uniqueNodeAddresses<SecondNode, RestNodes...>();
-}
-
-}  // namespace detail
-
 template <m::ifc::CTime TimeUsT, m::ifc::mcu::CPin PintT, typename... Nodes>
   requires(m::ifc::CUs<typename TimeUsT::Unit> && (sizeof...(Nodes) > 0))
 class ModbusRtuStaticProtocol {
+ private:
+  template <typename Node>
+  static consteval bool isModbusNode() {
+    return requires {
+      typename Node::Handler;
+      { Node::address } -> std::convertible_to<uint8_t>;
+    };
+  }
+
+  template <typename FirstNode>
+  static consteval bool uniqueNodeAddresses() {
+    return true;
+  }
+
+  template <typename FirstNode, typename SecondNode, typename... RestNodes>
+  static consteval bool uniqueNodeAddresses() {
+    return (FirstNode::address != SecondNode::address) &&
+           ((FirstNode::address != RestNodes::address) && ...) &&
+           uniqueNodeAddresses<SecondNode, RestNodes...>();
+  }
+
  public:
   enum class Commands : uint8_t {
     ReadCoils = 1,
@@ -102,9 +99,9 @@ class ModbusRtuStaticProtocol {
     decltype(std::declval<TimeUsT&>().now()) tx_response_delay;
   };
 
-  static_assert((detail::isModbusNode<Nodes>() && ...),
+  static_assert(sizeof...(Nodes) == 0 || (isModbusNode<Nodes>() && ...),
                 "Nodes must be ModbusAddressNode-like types");
-  static_assert(detail::uniqueNodeAddresses<Nodes...>(),
+  static_assert(sizeof...(Nodes) == 0 || uniqueNodeAddresses<Nodes...>(),
                 "Modbus node addresses must be unique");
 
   explicit ModbusRtuStaticProtocol(m::ifc::IDataLink& data_link, TimeUsT& time,

@@ -97,6 +97,26 @@ struct TaggedStorage<FirstTag, RestTags...> {
       rest.template set<Tag>(std::forward<Value>(new_walue));
     }
   }
+
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, FirstTag, RestTags...>
+  auto& getRef() {
+    if constexpr (std::is_same_v<Tag, FirstTag>) {
+      return value;
+    } else {
+      return rest.template getRef<Tag>();
+    }
+  }
+
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, FirstTag, RestTags...>
+  const auto& getRef() const {
+    if constexpr (std::is_same_v<Tag, FirstTag>) {
+      return value;
+    } else {
+      return rest.template getRef<Tag>();
+    }
+  }
 };
 
 template <CTag LastTag>
@@ -123,6 +143,18 @@ struct TaggedStorage<LastTag> {
     requires CIsStorageTag<Tag, LastTag> && CIsTagValueType<Tag, Value>
   void set(Value&& new_walue) {
     value = std::forward<Value>(new_walue);
+  }
+
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, LastTag>
+  auto& getRef() {
+    return value;
+  }
+
+  template <CTag Tag>
+    requires CIsStorageTag<Tag, LastTag>
+  const auto& getRef() const {
+    return value;
   }
 };
 }  // namespace m

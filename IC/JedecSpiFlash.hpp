@@ -32,8 +32,8 @@ template <typename IoT, typename TimeT, typename CsPinT,
           std::size_t Write_Block_Bytes_V = 256U,
           std::size_t Address_Bytes_V = 3U, uint8_t Erase_Command_V = 0x20>
   requires m::ifc::CIO_Async<IoT> && m::ifc::CBps<typename IoT::Unit> &&
-           m::ifc::CTimeOf<TimeT, typename TimeT::Unit> &&
-           m::ifc::CMs<typename TimeT::Unit> && m::ifc::mcu::CPin<CsPinT>
+           m::ifc::CTime<TimeT> && m::ifc::CMs<typename TimeT::Unit> &&
+           m::ifc::mcu::CPin<CsPinT>
 class JedecSpiFlash : public m::ifc::IFlashMemory {
  public:
   static_assert(Default_Total_Size_Bytes_V > 0U,
@@ -325,8 +325,8 @@ class JedecSpiFlash : public m::ifc::IFlashMemory {
 
 template <typename IoT, typename TimeT, typename CsPinT>
   requires m::ifc::CIO_Async<IoT> && m::ifc::CBps<typename IoT::Unit> &&
-           m::ifc::CTimeOf<TimeT, typename TimeT::Unit> &&
-           m::ifc::CMs<typename TimeT::Unit> && m::ifc::mcu::CPin<CsPinT>
+           m::ifc::CTime<TimeT> && m::ifc::CMs<typename TimeT::Unit> &&
+           m::ifc::mcu::CPin<CsPinT>
 JedecSpiFlash(IoT& io, CsPinT& cs_pin, TimeT& time)
     -> JedecSpiFlash<IoT, TimeT, CsPinT>;
 

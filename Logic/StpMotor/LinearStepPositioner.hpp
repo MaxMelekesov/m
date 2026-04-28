@@ -25,8 +25,9 @@
 
 namespace m {
 
-template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+template <typename TimeMsT, m::ifc::CStepDriver StepDriverT,
           m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
+  requires m::ifc::CTime<TimeMsT> && m::ifc::CMs<typename TimeMsT::Unit>
 class LinearStepPositioner {
  private:
   using MsT = decltype(std::declval<TimeMsT&>().now());
@@ -233,7 +234,7 @@ class LinearStepPositioner {
   }
 };
 
-template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+template <m::ifc::CTime TimeMsT, m::ifc::CStepDriver StepDriverT,
           m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
 LinearStepPositioner(TimeMsT&, StepDriverT&, StepCounterT&, StepGenT&)
     -> LinearStepPositioner<TimeMsT, StepDriverT, StepCounterT, StepGenT>;

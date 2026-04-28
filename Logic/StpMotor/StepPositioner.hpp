@@ -28,8 +28,9 @@
 
 namespace m {
 
-template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+template <typename TimeMsT, m::ifc::CStepDriver StepDriverT,
           m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
+  requires m::ifc::CTime<TimeMsT> && m::ifc::CMs<typename TimeMsT::Unit>
 class StepPositioner {
  private:
   using MsT = decltype(std::declval<TimeMsT&>().now());
@@ -271,9 +272,8 @@ class StepPositioner {
           if (reverse_pending_) {
             state_ = State::WaitReverse;
             stop_counter_ = stop_delay_;
-            return StepT{.freq = 1'000,
-                         .steps = Time_Step_.value(),
-                         .dummy = true};
+            return StepT{
+                .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
           } else {
             state_ = State::Idle;
             return fsm(target);
@@ -390,8 +390,10 @@ class StepPositioner {
     reverse_pending_ = true;
     step_acc_ = 0.0f;
 
-    const auto curve_speed = static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_)));
-    speed_ = std::max<uint32_t>(speed_, std::max<uint32_t>(curve_speed, uint32_t{1}));
+    const auto curve_speed =
+        static_cast<uint32_t>(std::roundf(acc_curve_.vt(t_)));
+    speed_ = std::max<uint32_t>(speed_,
+                                std::max<uint32_t>(curve_speed, uint32_t{1}));
     next_deacc_speed_ = speed_;
     state_ = State::Deacc;
     return true;
@@ -402,7 +404,7 @@ class StepPositioner {
     return (x < 0) ? (0u - ux) : ux;
   }
 };
-template <m::ifc::CTimeMs TimeMsT, m::ifc::CStepDriver StepDriverT,
+template <m::ifc::CTime TimeMsT, m::ifc::CStepDriver StepDriverT,
           m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
 StepPositioner(TimeMsT&, StepDriverT&, StepCounterT&, StepGenT&)
     -> StepPositioner<TimeMsT, StepDriverT, StepCounterT, StepGenT>;

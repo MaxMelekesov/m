@@ -39,19 +39,19 @@ enum class ModbusRtuError : uint8_t {
   MemoryParityError = 8,
 };
 
-template <uint8_t AddressV, typename HandlerT>
+template <typename HandlerT>
 struct ModbusAddressNode {
   using Handler = HandlerT;
-  static constexpr uint8_t address = AddressV;
+  uint8_t address;
 
   HandlerT handler;
 };
 
-template <uint8_t AddressV, typename HandlerT>
-auto makeModbusAddressNode(HandlerT&& handler)
-    -> ModbusAddressNode<AddressV, std::decay_t<HandlerT>> {
-  return ModbusAddressNode<AddressV, std::decay_t<HandlerT>>{
-      std::forward<HandlerT>(handler)};
+template <typename HandlerT>
+auto makeModbusAddressNode(uint8_t address, HandlerT&& handler)
+    -> ModbusAddressNode<std::decay_t<HandlerT>> {
+  return ModbusAddressNode<std::decay_t<HandlerT>>{
+      address, std::forward<HandlerT>(handler)};
 }
 
 template <m::ifc::CTime TimeUsT, m::ifc::mcu::CPin PintT, typename... Nodes>
@@ -62,20 +62,8 @@ class ModbusRtuStaticProtocol {
   static consteval bool isModbusNode() {
     return requires {
       typename Node::Handler;
-      { Node::address } -> std::convertible_to<uint8_t>;
+      { std::declval<Node&>().address } -> std::convertible_to<uint8_t>;
     };
-  }
-
-  template <typename FirstNode>
-  static consteval bool uniqueNodeAddresses() {
-    return true;
-  }
-
-  template <typename FirstNode, typename SecondNode, typename... RestNodes>
-  static consteval bool uniqueNodeAddresses() {
-    return (FirstNode::address != SecondNode::address) &&
-           ((FirstNode::address != RestNodes::address) && ...) &&
-           uniqueNodeAddresses<SecondNode, RestNodes...>();
   }
 
  public:
@@ -101,8 +89,6 @@ class ModbusRtuStaticProtocol {
 
   static_assert(sizeof...(Nodes) == 0 || (isModbusNode<Nodes>() && ...),
                 "Nodes must be ModbusAddressNode-like types");
-  static_assert(sizeof...(Nodes) == 0 || uniqueNodeAddresses<Nodes...>(),
-                "Modbus node addresses must be unique");
 
   explicit ModbusRtuStaticProtocol(m::ifc::IDataLink& data_link, TimeUsT& time,
                                    Timings timings, std::span<uint8_t> rx_buf,
@@ -167,6 +153,11 @@ class ModbusRtuStaticProtocol {
     }
 
     co_return tx_done.value();
+  }
+
+  template <std::size_t I>
+  void setNodeAddress(uint8_t addr) {
+    std::get<I>(nodes_).address = addr;
   }
 
   bool start() {
@@ -400,18 +391,13 @@ class ModbusRtuStaticProtocol {
     return response_size;
   }
 
-  static constexpr uint8_t firstAddress() {
-    using FirstNode = std::tuple_element_t<0, std::tuple<Nodes...>>;
-    return FirstNode::address;
-  }
+  uint8_t firstAddress() const { return std::get<0>(nodes_).address; }
 
   bool containsAddress(uint8_t addr) {
     bool found = false;
     std::apply(
         [&](auto&... node) {
-          ((found = found ||
-                    (addr == std::remove_cvref_t<decltype(node)>::address)),
-           ...);
+          ((found = found || (addr == node.address)), ...);
         },
         nodes_);
     return found;
@@ -437,7 +423,7 @@ class ModbusRtuStaticProtocol {
     if (dispatched) {
       return;
     }
-    if (addr != std::remove_cvref_t<NodeT>::address) {
+    if (addr != node.address) {
       return;
     }
 

@@ -51,39 +51,38 @@ class StepPositioner {
   m::Task<bool> startMove(int32_t steps) {
     co_await mutex_.lock();
 
-    if (!ctr_.running()) {
-      if (!ctr_.start()) co_return false;
+    const auto epoch = pending_epoch_.load(std::memory_order_acquire);
+    if (!co_await prepareMoveLocked(epoch)) {
+      co_return false;
     }
 
-    if (!drv_.getEnable()) {
-      drv_.setEnable(1);
-      co_await m::coroDelay(time_, driver_en_delay_);
-    }
-
-    if (!gen_.running()) {
-      if (!gen_.start()) co_return false;
-    }
-
-    target_pos_.fetch_add(steps, std::memory_order_relaxed);
+    target_pos_.fetch_add(steps, std::memory_order_acq_rel);
 
     co_return true;
   }
 
   m::Task<bool> startMoveTo(int32_t pos) {
-    if (moving()) co_return false;
-    auto current = ctr_.getCount();
-    auto res = co_await startMove(pos - current);
-    co_return res;
+    co_await mutex_.lock();
+
+    const auto epoch = pending_epoch_.load(std::memory_order_acquire);
+    if (!co_await prepareMoveLocked(epoch)) {
+      co_return false;
+    }
+
+    target_pos_.store(pos, std::memory_order_release);
+    co_return true;
   }
 
   bool softStop() {
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
-    target_pos_.store(0, std::memory_order_relaxed);
+    soft_stop_requested_.store(true, std::memory_order_release);
     return true;
   }
   bool emgStop() {
+    soft_stop_requested_.store(false, std::memory_order_relaxed);
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
-    target_pos_.store(0, std::memory_order_relaxed);
+    target_pos_.store(loaded_pos_sync_.load(std::memory_order_acquire),
+                      std::memory_order_release);
     bool res = gen_.stop();
     return res;
   }
@@ -96,7 +95,7 @@ class StepPositioner {
   void setStopDelay(MsT ms) { stop_delay_ = ms; }
   MsT getStopDelay() const { return stop_delay_; }
 
- public:
+ private:
   TimeMsT& time_;
   StepDriverT& drv_;
   StepCounterT& ctr_;
@@ -110,7 +109,9 @@ class StepPositioner {
   MsT stop_delay_{100};
 
   std::atomic<int32_t> target_pos_{0};
+  std::atomic<int32_t> loaded_pos_sync_{0};
   std::atomic<uint32_t> pending_epoch_{0};
+  std::atomic<bool> soft_stop_requested_{false};
 
   MsT t_{0};
   int32_t loaded_pos_{0};
@@ -141,9 +142,47 @@ class StepPositioner {
   State state_ = State::Idle;
 
   StepT nextStep() {
+    if (soft_stop_requested_.exchange(false, std::memory_order_acq_rel)) {
+      int32_t stop_pos = loaded_pos_;
+      if (drv_.getDirection() == StepDriverT::Dir::Forward) {
+        stop_pos += static_cast<int32_t>(last_st_);
+      } else {
+        stop_pos -= static_cast<int32_t>(last_st_);
+      }
+      target_pos_.store(stop_pos, std::memory_order_release);
+    }
     auto target = target_pos_.load(std::memory_order_acquire);
 
     return fsm(target);
+  }
+
+  m::Task<bool> prepareMoveLocked(uint32_t epoch) {
+    soft_stop_requested_.store(false, std::memory_order_relaxed);
+    if (epoch != pending_epoch_.load(std::memory_order_acquire)) {
+      co_return false;
+    }
+
+    if (!ctr_.running()) {
+      if (!ctr_.start()) co_return false;
+    }
+
+    if (!drv_.getEnable()) {
+      drv_.setEnable(1);
+      co_await m::coroDelay(time_, driver_en_delay_);
+      if (epoch != pending_epoch_.load(std::memory_order_acquire)) {
+        co_return false;
+      }
+    }
+
+    if (!gen_.running()) {
+      if (!gen_.start()) co_return false;
+    }
+
+    if (epoch != pending_epoch_.load(std::memory_order_acquire)) {
+      co_return false;
+    }
+
+    co_return true;
   }
 
   StepT fsm(int32_t target) {
@@ -255,6 +294,11 @@ class StepPositioner {
       } break;
 
       case State::Deacc: {
+        if (!reverse_pending_ && dirChanged(diff)) {
+          reverse_pending_ = true;
+          step_acc_ = 0.0f;
+        }
+
         if (reverse_pending_) {
           if (!dirChanged(diff)) {
             reverse_pending_ = false;
@@ -293,6 +337,11 @@ class StepPositioner {
         return fsm(target);
       } break;
       case State::LoadDeacc: {
+        if (!reverse_pending_ && dirChanged(diff)) {
+          reverse_pending_ = true;
+          step_acc_ = 0.0f;
+        }
+
         if (reverse_pending_ && !dirChanged(diff)) {
           reverse_pending_ = false;
           state_ = State::Acc;
@@ -374,6 +423,7 @@ class StepPositioner {
     steps_to_load_ -= steps;
     loaded_pos_ +=
         (drv_.getDirection() == StepDriverT::Dir::Forward) ? steps : -steps;
+    loaded_pos_sync_.store(loaded_pos_, std::memory_order_release);
     return StepT{.freq = speed_, .steps = steps, .dummy = false};
   }
 

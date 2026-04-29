@@ -48,39 +48,38 @@ class LinearStepPositioner {
   m::Task<bool> startMove(int32_t steps) {
     co_await mutex_.lock();
 
-    if (!ctr_.running()) {
-      if (!ctr_.start()) co_return false;
+    const auto epoch = pending_epoch_.load(std::memory_order_acquire);
+    if (!co_await prepareMoveLocked(epoch)) {
+      co_return false;
     }
 
-    if (!drv_.getEnable()) {
-      drv_.setEnable(1);
-      co_await m::coroDelay(time_, driver_en_delay_);
-    }
-
-    if (!gen_.running()) {
-      if (!gen_.start()) co_return false;
-    }
-
-    pending_steps_.fetch_add(steps, std::memory_order_relaxed);
+    target_pos_.fetch_add(steps, std::memory_order_acq_rel);
 
     co_return true;
   }
 
   m::Task<bool> startMoveTo(int32_t pos) {
-    if (moving()) co_return false;
-    auto current = ctr_.getCount();
-    auto res = co_await startMove(pos - current);
-    co_return res;
+    co_await mutex_.lock();
+
+    const auto epoch = pending_epoch_.load(std::memory_order_acquire);
+    if (!co_await prepareMoveLocked(epoch)) {
+      co_return false;
+    }
+
+    target_pos_.store(pos, std::memory_order_release);
+    co_return true;
   }
 
   bool softStop() {
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
-    pending_steps_.store(0, std::memory_order_relaxed);
+    target_pos_.store(loaded_pos_sync_.load(std::memory_order_acquire),
+                      std::memory_order_release);
     return true;
   }
   bool emgStop() {
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
-    pending_steps_.store(0, std::memory_order_relaxed);
+    target_pos_.store(loaded_pos_sync_.load(std::memory_order_acquire),
+                      std::memory_order_release);
     bool res = gen_.stop();
     return res;
   }
@@ -107,10 +106,12 @@ class LinearStepPositioner {
   MsT driver_en_delay_{10};
   MsT stop_delay_{100};
 
-  std::atomic<int32_t> pending_steps_{0};
+  std::atomic<int32_t> target_pos_{0};
+  std::atomic<int32_t> loaded_pos_sync_{0};
   std::atomic<uint32_t> pending_epoch_{0};
 
   MsT stop_counter_{0};
+  int32_t loaded_pos_{0};
 
   static constexpr MsT Time_Step_{1};
 
@@ -123,26 +124,19 @@ class LinearStepPositioner {
   State state_ = State::Idle;
 
   StepT nextStep() {
-    const auto pending_epoch = pending_epoch_.load(std::memory_order_acquire);
-    auto pending = pending_steps_.exchange(0, std::memory_order_relaxed);
-
-    auto update_pending = m::finally([&] {
-      if (pending == 0) return;
-      if (pending_epoch_.load(std::memory_order_acquire) != pending_epoch)
-        return;
-      pending_steps_.fetch_add(pending, std::memory_order_relaxed);
-    });
+    auto target = target_pos_.load(std::memory_order_acquire);
+    const int32_t diff = target - loaded_pos_;
 
     switch (state_) {
       case State::Idle: {
-        if (pending == 0) {
+        if (diff == 0) {
           state_ = State::Stop;
           stop_counter_ = MsT{2};
           return StepT{
               .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
         }
 
-        if (pending > 0) {
+        if (diff > 0) {
           drv_.setDirection(StepDriverT::Dir::Forward);
           ctr_.setDirection(StepCounterT::Dir::Up);
         } else {
@@ -154,34 +148,35 @@ class LinearStepPositioner {
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
       } break;
       case State::Moving: {
-        if (pending == 0) {
+        if (diff == 0) {
           state_ = State::Stop;
           stop_counter_ = MsT{2};
           return StepT{
               .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
         }
 
-        if ((pending > 0 &&
+        if ((diff > 0 &&
              drv_.getDirection() == StepDriverT::Dir::Backward) ||
-            (pending < 0 && drv_.getDirection() == StepDriverT::Dir::Forward)) {
+            (diff < 0 && drv_.getDirection() == StepDriverT::Dir::Forward)) {
           state_ = State::Idle;
 
           return StepT{
               .freq = 1'000, .steps = stop_delay_.value(), .dummy = true};
         }
 
-        uint32_t steps = std::min(abs_u32(pending), gen_.maxSteps());
+        uint32_t steps = std::min(abs_u32(diff), gen_.maxSteps());
         steps = std::min(steps, sT(Time_Step_));
-        int32_t delta = (pending > 0) ? static_cast<int32_t>(steps)
-                                      : -static_cast<int32_t>(steps);
-        pending -= delta;
+        int32_t delta = (diff > 0) ? static_cast<int32_t>(steps)
+                                   : -static_cast<int32_t>(steps);
+        loaded_pos_ += delta;
+        loaded_pos_sync_.store(loaded_pos_, std::memory_order_release);
 
         return StepT{.freq = speed_,
                      .steps = static_cast<uint32_t>(steps),
                      .dummy = false};
       } break;
       case State::Stop: {
-        if (pending != 0) {
+        if (diff != 0) {
           state_ = State::Idle;
           return StepT{
               .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
@@ -206,7 +201,7 @@ class LinearStepPositioner {
         }
       } break;
       case State::WaitStop: {
-        if (pending != 0) {
+        if (diff != 0) {
           state_ = State::Idle;
           return StepT{
               .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
@@ -222,6 +217,34 @@ class LinearStepPositioner {
         return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
       } break;
     }
+  }
+
+  m::Task<bool> prepareMoveLocked(uint32_t epoch) {
+    if (epoch != pending_epoch_.load(std::memory_order_acquire)) {
+      co_return false;
+    }
+
+    if (!ctr_.running()) {
+      if (!ctr_.start()) co_return false;
+    }
+
+    if (!drv_.getEnable()) {
+      drv_.setEnable(1);
+      co_await m::coroDelay(time_, driver_en_delay_);
+      if (epoch != pending_epoch_.load(std::memory_order_acquire)) {
+        co_return false;
+      }
+    }
+
+    if (!gen_.running()) {
+      if (!gen_.start()) co_return false;
+    }
+
+    if (epoch != pending_epoch_.load(std::memory_order_acquire)) {
+      co_return false;
+    }
+
+    co_return true;
   }
 
   uint32_t sT(MsT ms) {

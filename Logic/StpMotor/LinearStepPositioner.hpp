@@ -35,8 +35,8 @@ class LinearStepPositioner {
 
  public:
   LinearStepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
-                       StepGenT& gen)
-      : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
+                       StepGenT& gen, CoroMutex& mutex)
+      : time_(time), drv_(drv), ctr_(ctr), gen_(gen), mutex_(mutex) {
     ctr_.setCount(0);
     gen_.setCallback([&]() -> StepT { return nextStep(); });
   }
@@ -84,6 +84,15 @@ class LinearStepPositioner {
     return res;
   }
 
+  void reset(int32_t pos = 0) {
+    emgStop();
+    ctr_.setCount(pos);
+    loaded_pos_ = pos;
+    loaded_pos_sync_.store(pos, std::memory_order_release);
+    target_pos_.store(pos, std::memory_order_release);
+    state_ = State::Idle;
+  }
+
   void setSpeed(uint32_t value) { speed_ = value; }
   uint32_t getSpeed() const { return speed_; }
 
@@ -99,7 +108,7 @@ class LinearStepPositioner {
   StepCounterT& ctr_;
   StepGenT& gen_;
 
-  CoroMutex mutex_;
+  CoroMutex& mutex_;
 
   uint32_t speed_ = 3'000;
   bool autohold_ = false;
@@ -155,8 +164,7 @@ class LinearStepPositioner {
               .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
         }
 
-        if ((diff > 0 &&
-             drv_.getDirection() == StepDriverT::Dir::Backward) ||
+        if ((diff > 0 && drv_.getDirection() == StepDriverT::Dir::Backward) ||
             (diff < 0 && drv_.getDirection() == StepDriverT::Dir::Forward)) {
           state_ = State::Idle;
 

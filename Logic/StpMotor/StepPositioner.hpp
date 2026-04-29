@@ -38,8 +38,8 @@ class StepPositioner {
 
  public:
   StepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
-                 StepGenT& gen)
-      : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
+                 StepGenT& gen, CoroMutex& mutex)
+      : time_(time), drv_(drv), ctr_(ctr), gen_(gen), mutex_(mutex) {
     ctr_.setCount(0);
     gen_.setCallback([&]() -> StepT { return nextStep(); });
   }
@@ -81,10 +81,27 @@ class StepPositioner {
   bool emgStop() {
     soft_stop_requested_.store(false, std::memory_order_relaxed);
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
-    target_pos_.store(loaded_pos_sync_.load(std::memory_order_acquire),
-                      std::memory_order_release);
+    const int32_t pos = loaded_pos_sync_.load(std::memory_order_acquire);
+    target_pos_.store(pos, std::memory_order_release);
     bool res = gen_.stop();
+    loaded_pos_ = pos;
+    t_ = MsT{0};
+    speed_ = 0;
+    steps_to_load_ = 0;
+    last_st_ = 0;
+    step_acc_ = 0.0f;
+    next_deacc_speed_ = 0;
+    reverse_pending_ = false;
+    state_ = State::Idle;
     return res;
+  }
+
+  void reset(int32_t pos = 0) {
+    emgStop();
+    ctr_.setCount(pos);
+    loaded_pos_ = pos;
+    loaded_pos_sync_.store(pos, std::memory_order_release);
+    target_pos_.store(pos, std::memory_order_release);
   }
 
   SAccCurve& getAccCurve() { return acc_curve_; }
@@ -101,7 +118,7 @@ class StepPositioner {
   StepCounterT& ctr_;
   StepGenT& gen_;
 
-  CoroMutex mutex_;
+  CoroMutex& mutex_;
 
   SAccCurve acc_curve_{MsT{250}, 4'000, 40'000};
   bool autohold_ = false;

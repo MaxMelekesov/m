@@ -41,10 +41,12 @@ class StepPositioner {
                  StepGenT& gen, CoroMutex& mutex)
       : time_(time), drv_(drv), ctr_(ctr), gen_(gen), mutex_(mutex) {
     ctr_.setCount(0);
-    gen_.setCallback([&]() -> StepT { return nextStep(); });
   }
 
-  ~StepPositioner() { emgStop(); }
+  ~StepPositioner() {
+    emgStop();
+    gen_.setCallback({});
+  }
 
   bool moving() { return gen_.running(); }
 
@@ -74,16 +76,15 @@ class StepPositioner {
   }
 
   bool softStop() {
-    pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
     soft_stop_requested_.store(true, std::memory_order_release);
     return true;
   }
   bool emgStop() {
+    bool res = gen_.stop();
     soft_stop_requested_.store(false, std::memory_order_relaxed);
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
     const int32_t pos = loaded_pos_sync_.load(std::memory_order_acquire);
     target_pos_.store(pos, std::memory_order_release);
-    bool res = gen_.stop();
     loaded_pos_ = pos;
     t_ = MsT{0};
     speed_ = 0;
@@ -120,7 +121,7 @@ class StepPositioner {
 
   CoroMutex& mutex_;
 
-  SAccCurve acc_curve_{MsT{250}, 4'000, 40'000};
+  SAccCurve acc_curve_{MsT{250}, 2'000, 8'000};
   bool autohold_ = false;
   MsT driver_en_delay_{10};
   MsT stop_delay_{100};
@@ -160,13 +161,24 @@ class StepPositioner {
 
   StepT nextStep() {
     if (soft_stop_requested_.exchange(false, std::memory_order_acq_rel)) {
-      int32_t stop_pos = loaded_pos_;
-      if (drv_.getDirection() == StepDriverT::Dir::Forward) {
-        stop_pos += static_cast<int32_t>(last_st_);
-      } else {
-        stop_pos -= static_cast<int32_t>(last_st_);
+      // Smoothly decelerate from current point on the S-curve down to v_min
+      // and stop. last_st_ during Acc/Linear represents the cumulative number
+      // of steps that will be issued by a symmetric deceleration ramp from
+      // the current t_ down to 0.
+      if (state_ == State::Acc || state_ == State::LoadAcc ||
+          state_ == State::Linear || state_ == State::LoadLinear) {
+        int32_t stop_pos = loaded_pos_;
+        if (drv_.getDirection() == StepDriverT::Dir::Forward) {
+          stop_pos += static_cast<int32_t>(last_st_);
+        } else {
+          stop_pos -= static_cast<int32_t>(last_st_);
+        }
+        target_pos_.store(stop_pos, std::memory_order_release);
+        next_deacc_speed_ = std::max<uint32_t>(speed_, 1u);
+        step_acc_ = 0.0f;
+        reverse_pending_ = false;
+        state_ = State::Deacc;
       }
-      target_pos_.store(stop_pos, std::memory_order_release);
     }
     auto target = target_pos_.load(std::memory_order_acquire);
 
@@ -192,6 +204,7 @@ class StepPositioner {
     }
 
     if (!gen_.running()) {
+      gen_.setCallback([this]() -> StepT { return nextStep(); });
       if (!gen_.start()) co_return false;
     }
 
@@ -375,8 +388,7 @@ class StepPositioner {
       case State::Stop: {
         if (abs_u32(diff) != 0) {
           state_ = State::Idle;
-          return StepT{
-              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+          return fsm(target);
         }
 
         if (stop_counter_ > MsT{0}) {
@@ -400,8 +412,7 @@ class StepPositioner {
       case State::WaitStop: {
         if (abs_u32(diff) != 0) {
           state_ = State::Idle;
-          return StepT{
-              .freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
+          return fsm(target);
         }
         drv_.setEnable(0);
         gen_.stop();

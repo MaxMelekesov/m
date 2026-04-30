@@ -38,10 +38,12 @@ class LinearStepPositioner {
                        StepGenT& gen, CoroMutex& mutex)
       : time_(time), drv_(drv), ctr_(ctr), gen_(gen), mutex_(mutex) {
     ctr_.setCount(0);
-    gen_.setCallback([&]() -> StepT { return nextStep(); });
   }
 
-  ~LinearStepPositioner() { emgStop(); }
+  ~LinearStepPositioner() {
+    emgStop();
+    gen_.setCallback({});
+  }
 
   bool moving() { return gen_.running(); }
 
@@ -77,10 +79,10 @@ class LinearStepPositioner {
     return true;
   }
   bool emgStop() {
+    bool res = gen_.stop();
     pending_epoch_.fetch_add(1, std::memory_order_acq_rel);
     target_pos_.store(loaded_pos_sync_.load(std::memory_order_acquire),
                       std::memory_order_release);
-    bool res = gen_.stop();
     return res;
   }
 
@@ -245,6 +247,7 @@ class LinearStepPositioner {
     }
 
     if (!gen_.running()) {
+      gen_.setCallback([this]() -> StepT { return nextStep(); });
       if (!gen_.start()) co_return false;
     }
 

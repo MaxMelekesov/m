@@ -35,7 +35,7 @@ class ModbusRtuMasterWrapper {
 
   auto readMhr(uint8_t addr, uint16_t reg_addr, uint16_t regs_num,
                std::span<uint8_t> data) -> Task<bool> {
-    co_await mutex_.lock();
+    auto guard = co_await mutex_.lock();
 
     if (!timer_.running()) {
       // TOD: delay based on modbus baudrate

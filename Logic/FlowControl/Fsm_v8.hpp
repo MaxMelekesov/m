@@ -64,13 +64,13 @@ struct Transition {
   S from;
   E ev;
   S to;
-  bool (Ctx::*check)(S, E) const;
+  bool (Ctx::*check)(S, E);
   void (Ctx::*handle)(S, E);
   auto operator<=>(const Transition&) const = default;
 };
 
 template <typename S, typename E, typename Ctx>
-Transition(S, E, S, bool (Ctx::*)(S, E) const, void (Ctx::*)(S, E))
+Transition(S, E, S, bool (Ctx::*)(S, E), void (Ctx::*)(S, E))
     -> Transition<S, E, Ctx>;
 
 template <typename S, typename E, typename Ctx, Transition<S, E, Ctx>... Ts>
@@ -118,7 +118,7 @@ class Fsm_v8 {
     E ev;
     S to;
     transition_index_t next;
-    bool (Ctx::*check)(S, E) const;
+    bool (Ctx::*check)(S, E);
     void (Ctx::*handle)(S, E);
   };
 
@@ -211,8 +211,8 @@ class Fsm_v8 {
     while (idx != Npos) {
       const auto& n = index_.nodes[idx];
       if ((ctx.*n.check)(state_, n.ev)) {
-        state_ = n.to;
         (ctx.*n.handle)(state_, n.ev);
+        state_ = n.to;
         return true;
       }
       idx = n.next;

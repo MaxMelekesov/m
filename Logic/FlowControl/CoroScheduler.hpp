@@ -15,6 +15,7 @@
 #include <coroutine>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <utility>
 
@@ -129,10 +130,9 @@ class CoroFramePool {
     std::size_t peak_requested_slots{0};
   };
 
-  using OomCallback = void (*)(std::size_t requested_size,
-                               std::size_t requested_slots,
-                               std::size_t used_slots,
-                               std::size_t capacity_slots);
+  using OomCallback = std::function<void(
+      std::size_t requested_size, std::size_t requested_slots,
+      std::size_t used_slots, std::size_t capacity_slots)>;
 
   static CoroFramePool& getInstance() { return instance_; }
 

@@ -52,6 +52,7 @@ class ErrorLedIndicator {
         Pause_Between_Sequences(pause_between_sequences) {}
 
   void setError(ErrorT error_code) {
+    if (hasError()) return;
     error_code_ = error_code;
 
     generateFlashSequence();

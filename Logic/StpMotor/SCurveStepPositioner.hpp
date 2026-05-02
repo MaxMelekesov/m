@@ -51,6 +51,8 @@ class SCurveStepPositioner {
   using StepT = typename StepGenT::Step;
   using DrvDir = typename StepDriverT::Dir;
   using CtrDir = typename StepCounterT::Dir;
+  using mAT =
+      std::remove_cvref_t<decltype(std::declval<StepDriverT&>().getCurrent())>;
 
  public:
   SCurveStepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
@@ -106,11 +108,23 @@ class SCurveStepPositioner {
 
   SAccCurve& getAccCurve() { return acc_curve_; }
 
-  void setAutohold(bool v) { autohold_ = v; }
+  void setAutohold(bool v) {
+    autohold_ = v;
+    if (!v && !gen_.running() && drv_.getEnable()) drv_.setEnable(0);
+  }
   bool getAutohold() const { return autohold_; }
+
+  void setDriverEnDelay(MsT v) { driver_en_delay_ = v; }
+  MsT getDriverEnDelay() const { return driver_en_delay_; }
 
   void setStopDelay(MsT v) { stop_delay_ = v; }
   MsT getStopDelay() const { return stop_delay_; }
+
+  void setRunCurrent(mAT v) { run_current_ = v; }
+  mAT getRunCurrent() const { return run_current_; }
+
+  void setHoldCurrent(mAT v) { hold_current_ = v; }
+  mAT getHoldCurrent() const { return hold_current_; }
 
  private:
   TimeMsT& time_;
@@ -119,11 +133,13 @@ class SCurveStepPositioner {
   StepGenT& gen_;
   CoroMutex mutex_;
 
-  SAccCurve acc_curve_{MsT{3'00}, 2'000, 10'000};
+  SAccCurve acc_curve_{MsT{5'000}, 100, 100'000};
   MsT driver_en_delay_{10};
   MsT gen_drain_delay_{5};
   MsT stop_delay_{100};
   bool autohold_ = false;
+  mAT run_current_{1'000};
+  mAT hold_current_{500};
 
   // ── shared state (caller threads + ISR) ───────────────────────────────────
   std::atomic<int32_t> target_pos_{0};       // commanded absolute target
@@ -174,6 +190,7 @@ class SCurveStepPositioner {
 
     if (!drv_.getEnable()) {
       drv_.setEnable(1);
+      drv_.setCurrent(run_current_);
       co_await m::coroDelay(time_, driver_en_delay_);
       if (!alive()) co_return false;
     }
@@ -363,6 +380,7 @@ class SCurveStepPositioner {
       return idleTick();
     }
     if (autohold_) {
+      drv_.setCurrent(hold_current_);
       state_ = State::Done;
       gen_.stop();
       return idleTick();

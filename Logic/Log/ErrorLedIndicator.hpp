@@ -53,6 +53,7 @@ class ErrorLedIndicator {
 
   void setError(ErrorT error_code) {
     if (hasError()) return;
+    if (error_code_ == error_code) return;
     error_code_ = error_code;
 
     generateFlashSequence();

@@ -51,10 +51,10 @@ class IStepDriver {
   virtual void setDirectionInversion(DirInversion inv) = 0;
   virtual DirInversion getDirectionInversion() = 0;
 
-  virtual void setMicrostep(Microstep m) = 0;
+  virtual bool setMicrostep(Microstep m) = 0;
   virtual Microstep getMicrostep() = 0;
 
-  virtual void setCurrent(mAT ma) = 0;
+  virtual bool setCurrent(mAT ma) = 0;
   virtual mAT getCurrent() = 0;
 };
 
@@ -74,12 +74,12 @@ concept CStepDriver =
       {
         ctrl.getDirectionInversion()
       } -> std::same_as<typename T::DirInversion>;
-      { ctrl.setMicrostep(ms) } -> std::same_as<void>;
+      { ctrl.setMicrostep(ms) } -> std::same_as<bool>;
       { ctrl.getMicrostep() } -> std::same_as<typename T::Microstep>;
       requires CmA<std::remove_cvref_t<decltype(ctrl.getCurrent())>>;
       requires requires(
           typename std::remove_cvref_t<decltype(ctrl.getCurrent())> ma) {
-        { ctrl.setCurrent(ma) } -> std::same_as<void>;
+        { ctrl.setCurrent(ma) } -> std::same_as<bool>;
       };
     };
 

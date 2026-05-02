@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <span>
 
-#include "stm32f4xx_hal_uart.h"
+#include "stm32f4xx_hal.h"
 
 class Usart final : public m::ifc::IIO_Async<Bps<uint32_t>> {
  public:

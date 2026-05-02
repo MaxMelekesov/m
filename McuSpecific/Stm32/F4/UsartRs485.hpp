@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <span>
 
-#include "stm32f4xx_hal_uart.h"
+#include "stm32f4xx_hal.h"
 
 class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
  public:

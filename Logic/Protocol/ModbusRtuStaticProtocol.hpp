@@ -303,18 +303,61 @@ class ModbusRtuStaticProtocol {
       return std::nullopt;
     }
 
-    uint8_t addr = rx_buf[0];
-    if (addr == 0) {
-      addr = firstAddress();
+    const uint8_t addr = rx_buf[0];
+    const uint8_t cmd = rx_buf[1];
+    const auto request_payload = rx_buf.subspan(2, rx_buf.size() - 4);
+    auto response_payload = tx_buf.subspan(2, tx_buf.size() - 4);
+
+    const bool is_broadcast = (addr == 0);
+
+    if (is_broadcast) {
+      const auto cmd_enum = static_cast<Commands>(cmd);
+
+      if (cmd_enum != Commands::WriteSingleCoil &&
+          cmd_enum != Commands::WriteSingleHoldingRegister &&
+          cmd_enum != Commands::WriteMultipleCoils &&
+          cmd_enum != Commands::WriteMultipleHoldingRegisters) {
+        return std::nullopt;
+      }
+
+      dispatchBroadcast([&](auto& node) {
+        using HandlerT = typename std::remove_cvref_t<decltype(node)>::Handler;
+        switch (cmd_enum) {
+          case Commands::WriteSingleCoil:
+            if constexpr (WriteSingleCoilHandlerV<HandlerT>) {
+              processWriteSingleCoil(node.handler, request_payload,
+                                     response_payload);
+            }
+            break;
+          case Commands::WriteSingleHoldingRegister:
+            if constexpr (WriteSingleHoldingRegisterHandlerV<HandlerT>) {
+              processWriteSingleHoldingRegister(node.handler, request_payload,
+                                                response_payload);
+            }
+            break;
+          case Commands::WriteMultipleCoils:
+            if constexpr (WriteMultipleCoilsHandlerV<HandlerT>) {
+              processWriteMultipleCoils(node.handler, request_payload,
+                                        response_payload);
+            }
+            break;
+          case Commands::WriteMultipleHoldingRegisters:
+            if constexpr (WriteMultipleHoldingRegistersHandlerV<HandlerT>) {
+              processWriteMultipleHoldingRegisters(
+                  node.handler, request_payload, response_payload);
+            }
+            break;
+          default:
+            break;
+        }
+      });
+
+      return std::nullopt;
     }
 
     if (!containsAddress(addr)) {
       return std::nullopt;
     }
-
-    const uint8_t cmd = rx_buf[1];
-    const auto request_payload = rx_buf.subspan(2, rx_buf.size() - 4);
-    auto response_payload = tx_buf.subspan(2, tx_buf.size() - 4);
 
     ProcessResult result{Error::IllegalFunction, 0};
 
@@ -429,6 +472,11 @@ class ModbusRtuStaticProtocol {
 
     dispatched = true;
     result = dispatcher(node);
+  }
+
+  template <typename Dispatcher>
+  void dispatchBroadcast(Dispatcher&& dispatcher) {
+    std::apply([&](auto&... node) { ((dispatcher(node)), ...); }, nodes_);
   }
 
   ProcessResult dispatchReadCoils(uint8_t addr, std::span<uint8_t> rx_buf,

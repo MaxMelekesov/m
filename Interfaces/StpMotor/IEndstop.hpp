@@ -17,9 +17,9 @@
 
 namespace m::ifc {
 
-class IEndStop {
+class IEndstop {
  public:
-  virtual ~IEndStop() = default;
+  virtual ~IEndstop() = default;
 
   struct State {
     bool left;
@@ -45,7 +45,7 @@ class IEndStop {
 };
 
 template <typename T>
-concept CEndStop = requires(T ctrl, bool b, std::function<void()> left,
+concept CEndstop = requires(T ctrl, bool b, std::function<void()> left,
                             std::function<void()> right) {
   { ctrl.getSwitchesState() } -> std::same_as<typename T::State>;
   {
@@ -63,7 +63,7 @@ concept CEndStop = requires(T ctrl, bool b, std::function<void()> left,
   { ctrl.getActiveLevelSwR() } -> std::same_as<bool>;
 };
 
-static_assert(CEndStop<IEndStop>, "IEndStop must satisfy CEndStop concept");
+static_assert(CEndstop<IEndstop>, "IEndstop must satisfy CEndstop concept");
 
 }  // namespace m::ifc
 

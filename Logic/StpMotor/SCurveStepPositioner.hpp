@@ -93,6 +93,7 @@ class SCurveStepPositioner {
     epoch_.fetch_add(1, std::memory_order_acq_rel);
     soft_stop_.store(false, std::memory_order_relaxed);
     const bool res = gen_.stop();
+    ctr_.stop();
     const int32_t pos = ctr_.getCount();
     loaded_pos_sync_.store(pos, std::memory_order_release);
     target_pos_.store(pos, std::memory_order_release);
@@ -391,6 +392,7 @@ class SCurveStepPositioner {
     }
     if (autohold_) {
       drv_.setCurrent(hold_current_);
+      ctr_.stop();
       state_ = State::Done;
       gen_.stop();
       return idleTick();
@@ -406,6 +408,7 @@ class SCurveStepPositioner {
       return tick(target);
     }
     drv_.setEnable(0);
+    ctr_.stop();
     state_ = State::Done;
     gen_.stop();
     return idleTick();

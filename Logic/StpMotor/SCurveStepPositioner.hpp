@@ -14,6 +14,7 @@
 #include <CoroDelay.hpp>
 #include <CoroMutex.hpp>
 #include <CoroScheduler.hpp>
+#include <IEndstop.hpp>
 #include <IStepCounter.hpp>
 #include <IStepDriver.hpp>
 #include <IStepGen.hpp>
@@ -43,7 +44,8 @@ namespace m {
 // limited automatically by the available distance (triangular profile when
 // max_v can not be reached).
 template <typename TimeMsT, m::ifc::CStepDriver StepDriverT,
-          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
+          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT,
+          m::ifc::CEndstop EndstopT>
   requires m::ifc::CTime<TimeMsT> && m::ifc::CMs<typename TimeMsT::Unit>
 class SCurveStepPositioner {
  private:
@@ -56,8 +58,8 @@ class SCurveStepPositioner {
 
  public:
   SCurveStepPositioner(TimeMsT& time, StepDriverT& drv, StepCounterT& ctr,
-                       StepGenT& gen)
-      : time_(time), drv_(drv), ctr_(ctr), gen_(gen) {
+                       StepGenT& gen, EndstopT& endstop)
+      : time_(time), drv_(drv), ctr_(ctr), gen_(gen), endstop_(endstop) {
     ctr_.setCount(0);
   }
 
@@ -131,6 +133,7 @@ class SCurveStepPositioner {
   StepDriverT& drv_;
   StepCounterT& ctr_;
   StepGenT& gen_;
+  EndstopT& endstop_;
   CoroMutex mutex_;
 
   SAccCurve acc_curve_{MsT{5'000}, 100, 100'000};
@@ -187,6 +190,13 @@ class SCurveStepPositioner {
     };
 
     if (!ctr_.running() && !ctr_.start()) co_return false;
+
+    // Endstop check before enabling the driver — avoid wasted work.
+    {
+      const int32_t pos = ctr_.getCount();
+      const int32_t target_now = target_pos_.load(std::memory_order_acquire);
+      if (endstopBlocks(target_now - pos)) co_return false;
+    }
 
     if (!drv_.getEnable()) {
       drv_.setEnable(1);
@@ -431,6 +441,16 @@ class SCurveStepPositioner {
            (diff < 0 && drv_.getDirection() == DrvDir::Forward);
   }
 
+  // True if the endstop on the side we are about to move into is triggered.
+  // swap / ignore / active-level are already accounted for by getSwitchesState.
+  bool endstopBlocks(int32_t diff) const {
+    if (diff == 0) return false;
+    auto sw = endstop_.getSwitchesState();
+    if (diff > 0 && sw.right) return true;
+    if (diff < 0 && sw.left) return true;
+    return false;
+  }
+
   static StepT idleTick() {
     return StepT{.freq = 1'000, .steps = Time_Step_.value(), .dummy = true};
   }
@@ -442,10 +462,12 @@ class SCurveStepPositioner {
 };
 
 template <m::ifc::CTime TimeMsT, m::ifc::CStepDriver StepDriverT,
-          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT>
+          m::ifc::CStepCounter StepCounterT, m::ifc::CStepGen StepGenT,
+          m::ifc::CEndstop EndstopT>
 SCurveStepPositioner(TimeMsT&, StepDriverT&, StepCounterT&, StepGenT&,
-                     CoroMutex&)
-    -> SCurveStepPositioner<TimeMsT, StepDriverT, StepCounterT, StepGenT>;
+                     EndstopT&)
+    -> SCurveStepPositioner<TimeMsT, StepDriverT, StepCounterT, StepGenT,
+                            EndstopT>;
 
 }  // namespace m
 

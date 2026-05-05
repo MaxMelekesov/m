@@ -268,6 +268,10 @@ class ModbusRtuStaticProtocol {
   static constexpr bool SupportsWriteMultipleHoldingRegistersV =
       (WriteMultipleHoldingRegistersHandlerV<typename Nodes::Handler> || ...);
 
+  template <typename T>
+  static constexpr bool BroadcastEnabledV =
+      requires { requires T::BroadcastEnabled; };
+
   struct ProcessResult {
     std::optional<Error> error;
     uint32_t response_payload_size = 0;
@@ -320,31 +324,38 @@ class ModbusRtuStaticProtocol {
         return std::nullopt;
       }
 
+      bool regs_swapped = false;
       dispatchBroadcast([&](auto& node) {
         using HandlerT = typename std::remove_cvref_t<decltype(node)>::Handler;
         switch (cmd_enum) {
           case Commands::WriteSingleCoil:
-            if constexpr (WriteSingleCoilHandlerV<HandlerT>) {
+            if constexpr (WriteSingleCoilHandlerV<HandlerT> &&
+                          BroadcastEnabledV<HandlerT>) {
               processWriteSingleCoil(node.handler, request_payload,
                                      response_payload);
             }
             break;
           case Commands::WriteSingleHoldingRegister:
-            if constexpr (WriteSingleHoldingRegisterHandlerV<HandlerT>) {
+            if constexpr (WriteSingleHoldingRegisterHandlerV<HandlerT> &&
+                          BroadcastEnabledV<HandlerT>) {
               processWriteSingleHoldingRegister(node.handler, request_payload,
                                                 response_payload);
             }
             break;
           case Commands::WriteMultipleCoils:
-            if constexpr (WriteMultipleCoilsHandlerV<HandlerT>) {
+            if constexpr (WriteMultipleCoilsHandlerV<HandlerT> &&
+                          BroadcastEnabledV<HandlerT>) {
               processWriteMultipleCoils(node.handler, request_payload,
                                         response_payload);
             }
             break;
           case Commands::WriteMultipleHoldingRegisters:
-            if constexpr (WriteMultipleHoldingRegistersHandlerV<HandlerT>) {
+            if constexpr (WriteMultipleHoldingRegistersHandlerV<HandlerT> &&
+                          BroadcastEnabledV<HandlerT>) {
               processWriteMultipleHoldingRegisters(
-                  node.handler, request_payload, response_payload);
+                  node.handler, request_payload, response_payload,
+                  regs_swapped);
+              regs_swapped = true;
             }
             break;
           default:
@@ -602,7 +613,7 @@ class ModbusRtuStaticProtocol {
     }
 
     const uint32_t range = static_cast<uint32_t>(start_address) + item_count;
-    if (range > 0xFFFFU) {
+    if (range > 0x01'00'00U) {
       return {Error::IllegalDataAddress, 0};
     }
 
@@ -640,7 +651,7 @@ class ModbusRtuStaticProtocol {
     }
 
     const uint32_t range = static_cast<uint32_t>(start_address) + regs_num;
-    if (range > 0xFFFFU) {
+    if (range > 0x01'00'00U) {
       return {Error::IllegalDataAddress, 0};
     }
 
@@ -743,7 +754,8 @@ class ModbusRtuStaticProtocol {
 
   template <typename HandlerT>
   ProcessResult processWriteMultipleHoldingRegisters(
-      HandlerT& handler, std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf) {
+      HandlerT& handler, std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf,
+      bool bytes_already_swapped = false) {
     if (rx_buf.size() < 5) {
       return {Error::IllegalDataValue, 0};
     }
@@ -768,7 +780,9 @@ class ModbusRtuStaticProtocol {
     }
 
     auto regs = rx_buf.subspan(5, regs_num * 2U);
-    swapBytesInSpan(regs);
+    if (!bytes_already_swapped) {
+      swapBytesInSpan(regs);
+    }
 
     if (auto err = handler.writeMultipleHoldingRegisters(start_address,
                                                          regs_num, regs);
@@ -817,6 +831,16 @@ ModbusRtuStaticProtocol(m::ifc::IDataLink&, TimeUsT&,
 // ---------------------------------------------------------------------------
 
 struct NoModbusCallback {};
+
+// ---------------------------------------------------------------------------
+// BroadcastEnabledWrapper — opt-in broadcast processing for any handler
+// ---------------------------------------------------------------------------
+
+template <typename HandlerT>
+struct BroadcastEnabledWrapper : HandlerT {
+  static constexpr bool BroadcastEnabled = true;
+  using HandlerT::HandlerT;
+};
 
 namespace detail {
 
@@ -926,6 +950,11 @@ class ModbusLambdaHandler {
     requires(!detail::IsNoCallback<WmhrCbT>)
   {
     return wmhr_cb(start_addr, regs_num, regs);
+  }
+
+  auto withBroadcastProcessing() const {
+    return BroadcastEnabledWrapper<
+        std::remove_cvref_t<decltype(*this)>>{*this};
   }
 };
 

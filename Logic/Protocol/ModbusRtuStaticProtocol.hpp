@@ -105,7 +105,6 @@ class ModbusRtuStaticProtocol {
 
   m::Task<bool> coroRun() {
     if (data_link_.error()) {
-      state_ = State::Idle;
       if (!data_link_.stopReceive()) {
         co_return false;
       }
@@ -180,7 +179,6 @@ class ModbusRtuStaticProtocol {
   bool restart() {
     if (!data_link_.stopReceive()) return false;
     if (!data_link_.stopTransmit()) return false;
-    state_ = State::Idle;
     running_ = true;
     return true;
   }
@@ -292,9 +290,6 @@ class ModbusRtuStaticProtocol {
   std::tuple<Nodes...> nodes_;
 
   std::optional<uint32_t> tx_packet_size_;
-
-  enum class State : uint8_t { Idle, ProcessPacket, TransmitResponse };
-  State state_ = State::Idle;
 
   bool running_ = true;
 
@@ -958,8 +953,7 @@ class ModbusLambdaHandler {
   }
 
   auto withBroadcastProcessing() const {
-    return BroadcastEnabledWrapper<
-        std::remove_cvref_t<decltype(*this)>>{*this};
+    return BroadcastEnabledWrapper<std::remove_cvref_t<decltype(*this)>>{*this};
   }
 };
 

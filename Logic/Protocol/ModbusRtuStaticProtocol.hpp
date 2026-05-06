@@ -160,6 +160,11 @@ class ModbusRtuStaticProtocol {
     std::get<I>(nodes_).address = addr;
   }
 
+  template <std::size_t I>
+  uint8_t getNodeAddress() const {
+    return std::get<I>(nodes_).address;
+  }
+
   bool start() {
     if (running_) return false;
     running_ = true;

@@ -19,7 +19,8 @@
 
 #include "stm32f4xx_hal.h"
 
-class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
+class [[deprecated("Info: Bps - bytes per second")]] UsartRs485 final
+    : public m::ifc::IIO_Async<Bps<uint32_t>> {
  public:
   UsartRs485(m::ifc::mcu::IPin& dr_en, UART_HandleTypeDef& huart,
              Bps<uint32_t> baud)
@@ -103,9 +104,13 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return true;
   }
 
-  Bps<uint32_t> getBaudrate() override { return baud_ / 10; }
+  Bps<uint32_t> getBaudrate() override { return baud_; }
 
-  bool setBaudrate(Bps<uint32_t> baud) override { return false; }
+  bool setBaudrate(Bps<uint32_t> baud) override {
+    baud_ = baud;
+    huart_.Init.BaudRate = baud.value() * 10;
+    return (HAL_UART_Init(&huart_) == HAL_OK);
+  }
 
   bool error() override {
     return HAL_UART_GetError(&huart_) != HAL_UART_ERROR_NONE;

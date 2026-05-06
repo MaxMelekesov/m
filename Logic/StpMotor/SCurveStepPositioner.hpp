@@ -321,9 +321,10 @@ class SCurveStepPositioner {
         // DIR pin must NOT be flipped while the generator still has forward
         // chunks queued in the DMA buffer (timer would emit them with the new
         // DIR, both motor and step counter would walk backwards).
-        // Drain the pipeline first.
+        // Drain the pipeline first, then wait stop_delay_ for mechanical
+        // settling before reversing direction.
         state_ = State::ReverseDrain;
-        reverse_drain_left_ = MsT{2};
+        reverse_drain_left_ = stop_delay_;
         step_acc_ = 0.0f;
         return idleTick();
       }
@@ -398,7 +399,7 @@ class SCurveStepPositioner {
       return idleTick();
     }
     state_ = State::WaitDisable;
-    return StepT{.freq = 1'000, .steps = stop_delay_.value(), .dummy = true};
+    return idleTick();
   }
 
   StepT tickWaitDisable(int32_t target) {

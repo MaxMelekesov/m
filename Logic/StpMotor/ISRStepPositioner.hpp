@@ -164,7 +164,7 @@ class ISRStepPositioner {
   mAT hold_current_{500};
 
   // ── ISR-only state ─────────────────────────────────────────────────────
-  enum class State : uint8_t { Idle, WaitEnable, Run, WaitReverse, Settle, Hold };
+  enum class State : uint8_t { Idle, WaitEnable, Run, WaitReverse, Settle, WaitDisable, Hold };
   State state_ = State::Idle;
   int32_t loaded_pos_ = 0;
   MsT phase_t_{0};
@@ -242,6 +242,7 @@ class ISRStepPositioner {
       case State::Run:         return tickRun(target);
       case State::WaitReverse: return tickWaitReverse(target);
       case State::Settle:      return tickSettle(target);
+      case State::WaitDisable: return tickWaitDisable(target);
       case State::Hold:        return tickHold(target);
     }
     return idleTick();
@@ -367,6 +368,26 @@ class ISRStepPositioner {
     if (autohold_) {
       drv_.setCurrent(hold_current_);
       setState(State::Hold);
+      return idleTick();
+    }
+    if (driver_en_delay_ > MsT{0}) {
+      wait_left_ = driver_en_delay_;
+      setState(State::WaitDisable);
+      return idleTick();
+    }
+    drv_.setEnable(0);
+    setState(State::Idle);
+    return idleTick();
+  }
+
+  StepT tickWaitDisable(int32_t target) {
+    if (target != loaded_pos_) {
+      // New command arrived — cancel the disable delay and start moving.
+      setState(State::Idle);
+      return tickIdle(target);
+    }
+    if (wait_left_ > MsT{0}) {
+      --wait_left_;
       return idleTick();
     }
     drv_.setEnable(0);

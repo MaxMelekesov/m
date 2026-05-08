@@ -29,6 +29,14 @@ Static-array accumulator for error codes. Stores up to `Max_Elements` values.
 
 ---
 
+### `LogMixin.hpp` — `m::LogMixin<ModuleLevel=Log_Level>`
+Zero-overhead compile-time logging mixin. Inherit, wire `ILog&`, call `error()`/`info()`/`debug()`/`trace()`.  
+`if constexpr` eliminates calls + strings when `LOG_LEVEL` or `ModuleLevel` is too low.  
+`ModuleLevel=None` → storage is `Nil` (0 bytes).  
+**Key methods:** `error(msg)`, `warn(msg)`, `info(msg)`, `debug(msg)`, `trace(msg)`
+
+---
+
 ### `ErrorLedIndicator.hpp` — `m::ErrorLedIndicator<PinT, TimeT, ErrorT>`
 Blink-coded LED error indicator. Encodes an error enum value as a sequence of long/short flashes. FSM-driven.  
 `ErrorT` must be an `enum class` with an `ErrorT::Size` member indicating the number of codes.  

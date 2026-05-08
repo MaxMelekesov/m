@@ -62,6 +62,19 @@ class ISRStepPositioner {
     ctr_.start();
     resetIsrState();
     gen_.setCallback([this]() -> StepT { return tick(); });
+    endstop_.setCallbacks(
+        [&]() {  // left switch callback
+          if (left_switch_soft_stop_)
+            softStop();
+          else
+            emgStop();
+        },
+        [&]() {  // right switch callback
+          if (right_switch_soft_stop_)
+            softStop();
+          else
+            emgStop();
+        });
     gen_.start();
   }
 
@@ -105,9 +118,7 @@ class ISRStepPositioner {
 
   /// True while a move is active (accelerating, cruising, decelerating,
   /// reversing). False when idle, settled, or holding.
-  bool moving() const {
-    return moving_sync_.load(std::memory_order_acquire);
-  }
+  bool moving() const { return moving_sync_.load(std::memory_order_acquire); }
 
   /// Snapshot of the ISR-published loaded position (for monitoring).
   int32_t getLoadedPos() const {
@@ -132,6 +143,11 @@ class ISRStepPositioner {
 
   void setHoldCurrent(mAT v) { hold_current_ = v; }
   mAT getHoldCurrent() const { return hold_current_; }
+
+  void setLeftSwitchSoftStop(bool enable) { left_switch_soft_stop_ = enable; }
+  bool getLeftSwitchSoftStop() const { return left_switch_soft_stop_; }
+  void setRightSwitchSoftStop(bool enable) { right_switch_soft_stop_ = enable; }
+  bool getRightSwitchSoftStop() const { return right_switch_soft_stop_; }
 
  private:
   // ── References ─────────────────────────────────────────────────────────
@@ -162,9 +178,19 @@ class ISRStepPositioner {
   bool autohold_ = false;
   mAT run_current_{1'000};
   mAT hold_current_{500};
+  bool left_switch_soft_stop_ = false;
+  bool right_switch_soft_stop_ = false;
 
   // ── ISR-only state ─────────────────────────────────────────────────────
-  enum class State : uint8_t { Idle, WaitEnable, Run, WaitReverse, Settle, WaitDisable, Hold };
+  enum class State : uint8_t {
+    Idle,
+    WaitEnable,
+    Run,
+    WaitReverse,
+    Settle,
+    WaitDisable,
+    Hold
+  };
   State state_ = State::Idle;
   int32_t loaded_pos_ = 0;
   MsT phase_t_{0};
@@ -177,9 +203,9 @@ class ISRStepPositioner {
 
   void setState(State s) {
     state_ = s;
-    moving_sync_.store(s == State::WaitEnable || s == State::Run ||
-                           s == State::WaitReverse,
-                       std::memory_order_release);
+    moving_sync_.store(
+        s == State::WaitEnable || s == State::Run || s == State::WaitReverse,
+        std::memory_order_release);
   }
 
   void resetIsrState() {
@@ -237,13 +263,20 @@ class ISRStepPositioner {
 
     // 6. Dispatch.
     switch (state_) {
-      case State::Idle:        return tickIdle(target);
-      case State::WaitEnable:  return tickWaitEnable(target);
-      case State::Run:         return tickRun(target);
-      case State::WaitReverse: return tickWaitReverse(target);
-      case State::Settle:      return tickSettle(target);
-      case State::WaitDisable: return tickWaitDisable(target);
-      case State::Hold:        return tickHold(target);
+      case State::Idle:
+        return tickIdle(target);
+      case State::WaitEnable:
+        return tickWaitEnable(target);
+      case State::Run:
+        return tickRun(target);
+      case State::WaitReverse:
+        return tickWaitReverse(target);
+      case State::Settle:
+        return tickSettle(target);
+      case State::WaitDisable:
+        return tickWaitDisable(target);
+      case State::Hold:
+        return tickHold(target);
     }
     return idleTick();
   }

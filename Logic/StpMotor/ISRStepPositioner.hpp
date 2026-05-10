@@ -64,12 +64,14 @@ class ISRStepPositioner {
     gen_.setCallback([this]() -> StepT { return tick(); });
     endstop_.setCallbacks(
         [&]() {  // left switch callback
+          if (drv_.getDirection() != DrvDir::Backward) return;
           if (left_switch_soft_stop_)
             softStop();
           else
             emgStop();
         },
         [&]() {  // right switch callback
+          if (drv_.getDirection() != DrvDir::Forward) return;
           if (right_switch_soft_stop_)
             softStop();
           else
@@ -87,33 +89,67 @@ class ISRStepPositioner {
 
   /// Add @p steps to the current target.  Queuable on the fly.
   /// Restarts the generator automatically if it was stopped by emgStop/reset.
-  void startMove(int32_t steps) {
+  /// Silently ignored if the endstop blocks movement in the requested
+  /// direction — steps are NOT accumulated, preventing unintended motion
+  /// when the endstop is later released.
+  bool startMove(int32_t steps) {
+    if (steps == 0) return true;
+    if (endstopBlocks(steps)) return false;
     emg_active_.store(false, std::memory_order_release);
     soft_stop_req_.store(false, std::memory_order_release);
     if (!gen_.running()) gen_.start();
     target_pos_.fetch_add(steps, std::memory_order_acq_rel);
+    return true;
   }
 
   /// Override target to absolute position @p pos.
-  void startMoveTo(int32_t pos) {
+  /// Silently ignored if the endstop blocks movement towards @p pos —
+  /// the target is NOT overwritten, preventing unintended motion
+  /// when the endstop is later released.
+  bool startMoveTo(int32_t pos) {
+    const int32_t diff = pos - loaded_pos_sync_.load(std::memory_order_acquire);
+    if (diff == 0) return true;
+    if (endstopBlocks(diff)) return false;
     emg_active_.store(false, std::memory_order_release);
     soft_stop_req_.store(false, std::memory_order_release);
     if (!gen_.running()) gen_.start();
     target_pos_.store(pos, std::memory_order_release);
+    return true;
   }
 
   /// Request smooth deceleration along the S-curve down to v_min, then stop.
-  void softStop() { soft_stop_req_.store(true, std::memory_order_release); }
+  /// No-op if the motor is already idle, already braking, or a soft-stop
+  /// is already in progress — avoids overriding a natural deceleration.
+  void softStop() {
+    if (moving_sync_.load(std::memory_order_acquire) &&
+        !braking_sync_.load(std::memory_order_acquire) &&
+        !soft_stop_req_.load(std::memory_order_acquire))
+      soft_stop_req_.store(true, std::memory_order_release);
+  }
 
   /// Hard stop: kill driver, reset state.  Motion stops immediately.
   /// The generator is stopped; the next startMove/startMoveTo restarts it.
-  void emgStop() { emg_stop_req_.store(true, std::memory_order_release); }
+  /// No-op if the motor is already idle/stopped — avoids setting a stale
+  /// flag that would kill the generator after a subsequent reset + startMove.
+  void emgStop() {
+    if (moving_sync_.load(std::memory_order_acquire))
+      emg_stop_req_.store(true, std::memory_order_release);
+  }
 
-  /// Hard stop + set hardware counter and target to @p pos.
-  /// All register writes are deferred to the ISR to avoid races.
-  void reset(int32_t pos = 0) {
-    reset_pos_.store(pos, std::memory_order_release);
-    reset_req_.store(true, std::memory_order_release);
+  /// Rebase the coordinate system: set the current position to @p pos.
+  /// Does NOT stop the generator or disable the driver — the motor must
+  /// already be idle (moving_sync_ == false), otherwise the call is
+  /// silently ignored.
+  /// Updates target_pos_ and the hardware counter immediately to avoid
+  /// races with a subsequent startMove and to keep Position_Steps readable
+  /// even when the generator is stopped.
+  void setPosition(int32_t pos = 0) {
+    if (!moving_sync_.load(std::memory_order_acquire)) {
+      target_pos_.store(pos, std::memory_order_release);
+      ctr_.setCount(pos);
+      set_pos_.store(pos, std::memory_order_release);
+      set_pos_req_.store(true, std::memory_order_release);
+    }
   }
 
   /// True while a move is active (accelerating, cruising, decelerating,
@@ -148,6 +184,11 @@ class ISRStepPositioner {
   bool getLeftSwitchSoftStop() const { return left_switch_soft_stop_; }
   void setRightSwitchSoftStop(bool enable) { right_switch_soft_stop_ = enable; }
   bool getRightSwitchSoftStop() const { return right_switch_soft_stop_; }
+  bool setSwapSwitches(bool swap) {
+    if (moving()) return false;
+    endstop_.setSwapSwitches(swap);
+    return true;
+  }
 
  private:
   // ── References ─────────────────────────────────────────────────────────
@@ -161,12 +202,13 @@ class ISRStepPositioner {
   std::atomic<int32_t> target_pos_{0};
   std::atomic<bool> soft_stop_req_{false};
   std::atomic<bool> emg_stop_req_{false};
-  std::atomic<bool> reset_req_{false};
-  std::atomic<int32_t> reset_pos_{0};
+  std::atomic<bool> set_pos_req_{false};
+  std::atomic<int32_t> set_pos_{0};
 
   // ── Atomic flags (ISR → user) ──────────────────────────────────────────
   std::atomic<int32_t> loaded_pos_sync_{0};
   std::atomic<bool> moving_sync_{false};
+  std::atomic<bool> braking_sync_{false};
 
   // ── emgStop guard (user ⟷ ISR) ─────────────────────────────────────────
   std::atomic<bool> emg_active_{false};
@@ -215,25 +257,21 @@ class ISRStepPositioner {
     pending_steps_ = 0;
     pending_freq_ = 0;
     wait_left_ = MsT{0};
+    braking_sync_.store(false, std::memory_order_release);
   }
 
   // ── ISR entry point ────────────────────────────────────────────────────
 
   StepT tick() {
-    // 1. Reset request — highest priority (deferred from user context).
-    //    Stops the generator to flush the DMA pipeline.  The next
-    //    startMove/startMoveTo will restart it from user context.
-    if (reset_req_.exchange(false, std::memory_order_acq_rel)) {
-      drv_.setEnable(0);
-      gen_.stop();
-      const int32_t pos = reset_pos_.load(std::memory_order_acquire);
-      ctr_.setCount(pos);
-      loaded_pos_ = pos;
-      target_pos_.store(pos, std::memory_order_release);
-      loaded_pos_sync_.store(pos, std::memory_order_release);
-      emg_active_.store(false, std::memory_order_release);
-      resetIsrState();
-      return idleTick();
+    // 1. Set-position request — highest priority (deferred from user context).
+    //    The user-API guard (!moving_sync_) ensures this only fires when
+    //    the motor is idle/stopped, so there is no need to stop the
+    //    generator or disable the driver — just rebase the coordinates.
+    if (set_pos_req_.exchange(false, std::memory_order_acq_rel)) {
+      // target_pos_ and ctr_ already updated in user-API setPosition().
+      // Only sync loaded_pos_ from the pre-set counter value.
+      loaded_pos_ = set_pos_.load(std::memory_order_acquire);
+      loaded_pos_sync_.store(loaded_pos_, std::memory_order_release);
     }
 
     // 2. Emergency stop — stop the generator but do NOT overwrite
@@ -255,13 +293,22 @@ class ISRStepPositioner {
     // 4. Fetch the current command.
     int32_t target = target_pos_.load(std::memory_order_acquire);
 
-    // 5. Soft-stop is a continuous override — do NOT consume the flag.
+    // 5. Safety net: if an endstop blocks movement towards the current
+    //    target, discard accumulated steps.  This catches races where the
+    //    user-API check (startMove/startMoveTo) passed but the endstop
+    //    was pressed before the ISR processed the command.
+    if (endstopBlocks(target - loaded_pos_)) {
+      target_pos_.store(loaded_pos_, std::memory_order_release);
+      target = loaded_pos_;
+    }
+
+    // 6. Soft-stop is a continuous override — do NOT consume the flag.
     //    It stays active until startMove/startMoveTo clears it.
     if (soft_stop_req_.load(std::memory_order_acquire)) {
       target = softStopTarget();
     }
 
-    // 6. Dispatch.
+    // 7. Dispatch.
     switch (state_) {
       case State::Idle:
         return tickIdle(target);
@@ -320,6 +367,7 @@ class ISRStepPositioner {
     const uint32_t brake_dist =
         static_cast<uint32_t>(std::roundf(acc_curve_.st(phase_t_)));
     const bool brake = reverse || adiff <= brake_dist;
+    braking_sync_.store(brake, std::memory_order_release);
 
     const MsT acc_t = acc_curve_.getAccT();
     const MsT t_next =
@@ -340,25 +388,28 @@ class ISRStepPositioner {
 
     // Steps to emit in this 1 ms slice.
     float ds;
+    uint32_t steps;
     const bool cruise = !brake && phase_t_ == acc_t && t_next == acc_t;
     if (cruise) {
       ds = acc_curve_.vt(t_next) * static_cast<float>(Time_Step_.value()) /
-               1'000.0f +
-           step_acc_;
+           1'000.0f;
+      steps = static_cast<uint32_t>(std::roundf(ds));
+      // Cruise uses round-to-nearest, no step_acc_ carry —
+      // avoids step_acc_ getting stuck when vt*dt is an exact integer.
     } else {
       ds = std::fabs(acc_curve_.st(t_next) - acc_curve_.st(phase_t_)) +
            step_acc_;
+      steps = static_cast<uint32_t>(std::roundf(ds));
+      step_acc_ = ds - static_cast<float>(steps);
     }
-
-    uint32_t steps = static_cast<uint32_t>(ds);
-    step_acc_ = ds - static_cast<float>(steps);
 
     if (steps > adiff) {
       steps = adiff;
       step_acc_ = 0.0f;
+      phase_t_ = MsT{0};  // at target — skip phantom countdown
+    } else {
+      phase_t_ = t_next;
     }
-
-    phase_t_ = t_next;
 
     if (steps == 0) return idleTick();
 

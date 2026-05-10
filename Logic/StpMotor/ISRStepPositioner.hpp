@@ -107,9 +107,8 @@ class ISRStepPositioner {
   /// the target is NOT overwritten, preventing unintended motion
   /// when the endstop is later released.
   bool startMoveTo(int32_t pos) {
-    const int32_t diff = pos - loaded_pos_sync_.load(std::memory_order_acquire);
-    if (diff == 0) return true;
-    if (endstopBlocks(diff)) return false;
+    if (endstopBlocks(pos - loaded_pos_sync_.load(std::memory_order_acquire)))
+      return false;
     emg_active_.store(false, std::memory_order_release);
     soft_stop_req_.store(false, std::memory_order_release);
     if (!gen_.running()) gen_.start();
@@ -180,6 +179,9 @@ class ISRStepPositioner {
   void setHoldCurrent(mAT v) { hold_current_ = v; }
   mAT getHoldCurrent() const { return hold_current_; }
 
+  void setLogicalDirInversion(bool v) { logical_dir_inv_ = v; }
+  bool getLogicalDirInversion() const { return logical_dir_inv_; }
+
   void setLeftSwitchSoftStop(bool enable) { left_switch_soft_stop_ = enable; }
   bool getLeftSwitchSoftStop() const { return left_switch_soft_stop_; }
   void setRightSwitchSoftStop(bool enable) { right_switch_soft_stop_ = enable; }
@@ -218,6 +220,7 @@ class ISRStepPositioner {
   MsT driver_en_delay_{10};
   MsT stop_delay_{100};
   bool autohold_ = false;
+  bool logical_dir_inv_ = false;
   mAT run_current_{1'000};
   mAT hold_current_{500};
   bool left_switch_soft_stop_ = false;
@@ -516,28 +519,35 @@ class ISRStepPositioner {
       s = std::min(s, cap);
     }
     pending_steps_ -= s;
-    loaded_pos_ +=
-        (drv_.getDirection() == DrvDir::Forward) ? int32_t(s) : -int32_t(s);
+    loaded_pos_ += (drv_.getDirection() == DrvDir::Forward) != logical_dir_inv_
+                       ? int32_t(s) : -int32_t(s);
     loaded_pos_sync_.store(loaded_pos_, std::memory_order_release);
     return StepT{.freq = pending_freq_, .steps = s, .dummy = false};
   }
 
   void setDirection(int32_t diff) {
-    if (diff >= 0) {
-      drv_.setDirection(DrvDir::Forward);
+    // Counter tracks user coordinates (original diff).
+    if (diff >= 0)
       ctr_.setDirection(CtrDir::Up);
-    } else {
-      drv_.setDirection(DrvDir::Backward);
+    else
       ctr_.setDirection(CtrDir::Down);
-    }
+    // Driver gets physical direction (inverted when logical_dir_inv_).
+    if (logical_dir_inv_) diff = -diff;
+    if (diff >= 0)
+      drv_.setDirection(DrvDir::Forward);
+    else
+      drv_.setDirection(DrvDir::Backward);
   }
 
   bool dirMismatch(int32_t diff) const {
-    return (diff > 0 && drv_.getDirection() == DrvDir::Backward) ||
-           (diff < 0 && drv_.getDirection() == DrvDir::Forward);
+    if (diff == 0) return false;
+    return ((diff > 0) != logical_dir_inv_) !=
+           (drv_.getDirection() == DrvDir::Forward);
   }
 
   bool endstopBlocks(int32_t diff) const {
+    // Diff is in user coordinates; map to physical direction.
+    if (logical_dir_inv_) diff = -diff;
     if (diff == 0) return false;
     auto sw = endstop_.getSwitchesState();
     if (diff > 0 && sw.right) return true;
@@ -549,7 +559,9 @@ class ISRStepPositioner {
     const int32_t brake =
         static_cast<int32_t>(std::roundf(acc_curve_.st(phase_t_)));
     return loaded_pos_ +
-           ((drv_.getDirection() == DrvDir::Forward) ? brake : -brake);
+           (((drv_.getDirection() == DrvDir::Forward) != logical_dir_inv_)
+                ? brake
+                : -brake);
   }
 
   static StepT idleTick() {

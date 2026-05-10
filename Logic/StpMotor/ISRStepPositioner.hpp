@@ -450,7 +450,7 @@ class ISRStepPositioner {
       return idleTick();
     }
     if (autohold_) {
-      drv_.setCurrent(hold_current_);
+      wait_left_ = driver_en_delay_;
       setState(State::Hold);
       return idleTick();
     }
@@ -489,6 +489,18 @@ class ISRStepPositioner {
       step_acc_ = 0.0f;
       setState(State::Run);
       return tickRun(target);
+    }
+    // Wait for hold-current delay on initial entry from Settle.
+    if (wait_left_ > MsT{0}) {
+      --wait_left_;
+      if (wait_left_ == MsT{0}) drv_.setCurrent(hold_current_);
+      return idleTick();
+    }
+    // Autohold was turned off while holding — disable the driver immediately
+    // (enable delay is meaningless for disable).
+    if (!autohold_) {
+      drv_.setEnable(0);
+      setState(State::Idle);
     }
     return idleTick();
   }

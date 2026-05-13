@@ -22,6 +22,7 @@ class HashFAQ6 final : public ifc::IHash<4> {
   using Hash = m::ifc::IHash<4>::type;
 
   bool check(std::span<uint8_t const> data, Hash& hash) override {
+    if (std::bit_cast<uint32_t>(hash) == 0) return false;
     auto calculated = calc(data);
     auto res = hash == calculated;
     return res;

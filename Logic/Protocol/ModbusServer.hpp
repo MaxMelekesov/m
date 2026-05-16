@@ -15,13 +15,13 @@
 #include <CoroScheduler.hpp>
 #include <CoroYield.hpp>
 #include <IDataLink.hpp>
-#include <IPin.hpp>
 #include <ITime.hpp>
 #include <Us.hpp>
 #include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <optional>
 #include <span>
 #include <tuple>
@@ -29,6 +29,59 @@
 #include <utility>
 
 namespace m {
+
+/* ===========================================================================
+ * Modbus RTU server — compile-time key dispatch, zero-overhead feature gating.
+ *
+ * Usage:
+ *
+ *   // 1. Define register keys (address embedded in type).
+ *   struct MyRegs {
+ *     struct Address  : m::ModbusReg<uint16_t, m::ModbusAccess::HoldingRW,
+ * 0x00> {}; struct Baudrate : m::ModbusReg<uint32_t,
+ * m::ModbusAccess::HoldingRW, 0x01> {}; using Keys = std::tuple<Address,
+ * Baudrate>;
+ *   };
+ *
+ *   // 2. Inherit ModbusHandler<RegInfo, Derived> — implement onRead/onWrite.
+ *   struct MyHandler : m::ModbusHandler<MyRegs, MyHandler> {
+ *     using Base = m::ModbusHandler<MyRegs, MyHandler>;
+ *     MyHandler(uint8_t addr, …) : Base(addr), … {}
+ *
+ *     uint16_t onRead(m::ModbusKey<MyRegs::Address>) { return …; }
+ *     void     onWrite(m::ModbusKey<MyRegs::Baudrate>, uint32_t v) { …; }
+ *
+ *     // onWrite can return std::optional<ModbusRtuError> for validation.
+ *   };
+ *
+ *   // 3. Create handler(s), inject into ModbusServer.
+ *   MyHandler h{0x01, …};
+ *   m::ModbusServer server{
+ *       data_link, time, {300_Us}, rx_buf, tx_buf,
+ *       std::move(h)
+ *       // optional LED callbacks (zero overhead if omitted):
+ *       , []{ rx_led.toggle(); }, []{ tx_led.toggle(); }
+ *   };
+ *
+ *   // 4. Coroutine loop.
+ *   while (1) {
+ *     if (!co_await server.coroRun()) {  }
+ *     co_await m::coroYield();
+ *   }
+ *
+ * Multiple Modbus addresses:
+ *
+ *   MyHandler h1{0x01, …};
+ *   OtherHandler h2{0x02, …};
+ *   m::ModbusServer server{data_link, time, {300_Us}, rx_buf, tx_buf,
+ *                          std::move(h1), std::move(h2)};
+ *   // Broadcast writes (addr=0) are forwarded to ALL handlers.
+ *
+ * Compile-time checks:
+ *   • Address overlap within same category → static_assert.
+ *   • Duplicate key types in Keys tuple → static_assert.
+ *   • Unused function codes (e.g. no coils) → zero flash (if constexpr).
+ */
 
 // ============================================================================
 // Modbus error codes
@@ -108,11 +161,72 @@ template <typename... Ks>
 struct HasAnyDiscrete<std::tuple<Ks...>>
     : std::bool_constant<hasAnyDiscrete<Ks...>> {};
 
-}  // namespace detail
+// ── Compile-time address-overlap detection ────────────────────────────────
+template <typename Tuple>
+consteval bool allAddressesUnique() {
+  constexpr auto N = std::tuple_size_v<Tuple>;
+  if constexpr (N <= 1) return true;
 
-// ============================================================================
-// ModbusType<T> — C++ type + Modbus wire size (for holding registers)
-// ============================================================================
+  enum class Cat : uint8_t { Holding, Coil, Discrete };
+
+  struct Info {
+    uint16_t addr;
+    uint16_t count;
+    Cat cat;
+  };
+
+  constexpr auto infos = []<std::size_t... Is>(std::index_sequence<Is...>) {
+    return std::array<Info, N>{{
+        {std::tuple_element_t<Is, Tuple>::address,
+         std::tuple_element_t<Is, Tuple>::isHolding
+             ? std::tuple_element_t<Is, Tuple>::Type::regCount
+             : 1U,
+         std::tuple_element_t<Is, Tuple>::isHolding ? Cat::Holding
+         : std::tuple_element_t<Is, Tuple>::isCoil  ? Cat::Coil
+                                                    : Cat::Discrete}...,
+    }};
+  }(std::make_index_sequence<N>{});
+
+  for (std::size_t i = 0; i < N; ++i) {
+    for (std::size_t j = i + 1; j < N; ++j) {
+      if (infos[i].cat != infos[j].cat) continue;
+      if (infos[i].cat == Cat::Holding) {
+        if (infos[i].addr < infos[j].addr + infos[j].count &&
+            infos[j].addr < infos[i].addr + infos[i].count)
+          return false;
+      } else {
+        if (infos[i].addr == infos[j].addr) return false;
+      }
+    }
+  }
+  return true;
+}
+
+// ── Compile-time duplicate-type detection ─────────────────────────────────
+template <typename Tuple>
+consteval bool allTypesUnique() {
+  constexpr auto N = std::tuple_size_v<Tuple>;
+  if constexpr (N <= 1) return true;
+  return []<std::size_t... Is>(std::index_sequence<Is...>) {
+    return ([]<std::size_t I>() {
+      return []<std::size_t... Js>(std::index_sequence<Js...>) {
+        return ([]<std::size_t J>() {
+          if constexpr (I >= J) return true;
+          return !std::is_same_v<std::tuple_element_t<I, Tuple>,
+                                 std::tuple_element_t<J, Tuple>>;
+        }.template operator()<Js>() &&
+                ...);
+      }(std::make_index_sequence<N>{});
+    }.template operator()<Is>() &&
+            ...);
+  }(std::make_index_sequence<N>{});
+}
+
+struct NoOpCb {
+  void operator()() const {}
+};
+
+}  // namespace detail
 
 template <typename T>
 struct ModbusType {
@@ -189,22 +303,20 @@ struct ModbusKey {
 };
 
 // ============================================================================
-// ModbusServer<RegInfo, Derived, TimeUsT, PintT> — CRTP transport + handler
+// ModbusHandler<RegInfo, Derived> — CRTP dispatch (onRead / onWrite)
 //
 // Usage:
 //
 //   struct MyRegs { … };
-//   struct MyServer : m::ModbusServer<MyRegs, MyServer, TimeUs, Pin> {
-//     using Base = m::ModbusServer<MyRegs, MyServer, TimeUs, Pin>;
-//     using Base::Base;
-//     uint16_t onRead(this auto&&, m::ModbusKey<MyRegs::Address>) { … }
+//   struct MyHandler : m::ModbusHandler<MyRegs, MyHandler> {
+//     using Base = m::ModbusHandler<MyRegs, MyHandler>;
+//     MyHandler(uint8_t addr, …) : Base(addr), … {}
+//     uint16_t onRead(m::ModbusKey<MyRegs::Address>) { … }
 //   };
 // ============================================================================
 
-template <CModbusRegInfo RegInfo, typename Derived, m::ifc::CTime TimeUsT,
-          m::ifc::mcu::CPin PintT>
-  requires m::ifc::CUs<typename TimeUsT::Unit>
-class ModbusServer {
+template <CModbusRegInfo RegInfo, typename Derived>
+class ModbusHandler {
   static constexpr bool Has_Holding =
       detail::HasAnyHolding<typename RegInfo::Keys>::value;
   static constexpr bool Has_Coil =
@@ -212,122 +324,25 @@ class ModbusServer {
   static constexpr bool Has_Discrete =
       detail::HasAnyDiscrete<typename RegInfo::Keys>::value;
 
+  static_assert(detail::allAddressesUnique<typename RegInfo::Keys>(),
+                "Modbus register addresses overlap or conflict");
+  static_assert(detail::allTypesUnique<typename RegInfo::Keys>(),
+                "Duplicate Modbus register key type in Keys tuple");
+
  public:
   using Error = ModbusRtuError;
 
-  struct Timings {
-    decltype(std::declval<TimeUsT&>().now()) tx_response_delay;
-  };
-
-  ModbusServer(m::ifc::IDataLink& data_link, TimeUsT& time, Timings timings,
-               std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf,
-               PintT& rx_led, PintT& tx_led, uint8_t address)
-      : data_link_(data_link),
-        time_(time),
-        timings_(timings),
-        rx_buf_(rx_buf),
-        tx_buf_(tx_buf),
-        rx_led_(rx_led),
-        tx_led_(tx_led),
-        address_(address) {}
-
-  // ── Transport ──────────────────────────────────────────────────────────
-
-  m::Task<bool> coroRun() {
-    if (data_link_.error()) {
-      if (!data_link_.stopReceive()) co_return false;
-      if (!data_link_.stopTransmit()) co_return false;
-    }
-    if (running_) {
-      if (data_link_.startReceive(rx_buf_))
-        co_await m::coroYield();
-      else
-        co_return false;
-    } else {
-      co_return true;
-    }
-
-    auto packet = data_link_.getPacket();
-    while (!packet) {
-      packet = data_link_.getPacket();
-      co_await m::coroYield();
-    }
-
-    tx_packet_size_ = process(packet.value(), tx_buf_);
-    if (!tx_packet_size_) co_return true;
-
-    rx_led_.toggle();
-    co_await m::coroDelay(time_, timings_.tx_response_delay);
-
-    if (auto size = tx_packet_size_.value(); size) {
-      if (!data_link_.startTransmit(tx_buf_.first(size))) co_return false;
-      tx_led_.toggle();
-    }
-
-    auto tx_done = data_link_.transmitDone();
-    while (!tx_done) {
-      tx_done = data_link_.transmitDone();
-      co_await m::coroYield();
-    }
-    co_return tx_done.value();
-  }
+  explicit ModbusHandler(uint8_t address) : address_(address) {}
 
   void setAddress(uint8_t a) { address_ = a; }
   uint8_t getAddress() const { return address_; }
-  bool start() { return running_ ? false : (running_ = true); }
-  bool stop() { return !running_ ? false : (running_ = false); }
 
- private:
-  Derived& self() { return static_cast<Derived&>(*this); }
+  // ── Dispatch entry points (called by ModbusServer) ─────────────────────
 
-  m::ifc::IDataLink& data_link_;
-  TimeUsT& time_;
-  Timings timings_;
-  std::span<uint8_t> rx_buf_;
-  std::span<uint8_t> tx_buf_;
-  PintT& rx_led_;
-  PintT& tx_led_;
-  uint8_t address_;
-  std::optional<uint32_t> tx_packet_size_;
-  bool running_ = true;
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // process() — CRC → address → dispatch → response
-  // ═══════════════════════════════════════════════════════════════════════
-
-  std::optional<uint32_t> process(std::span<uint8_t> rx_buf,
-                                  std::span<uint8_t> tx_buf) {
-    if (rx_buf.size() < 4 || rx_buf.size() > 256) return std::nullopt;
-
-    const auto no_crc = rx_buf.first(rx_buf.size() - 2);
-    if (crc16(no_crc) !=
-        (static_cast<uint16_t>(rx_buf[rx_buf.size() - 2]) |
-         (static_cast<uint16_t>(rx_buf[rx_buf.size() - 1]) << 8)))
-      return std::nullopt;
-
-    const uint8_t addr = rx_buf[0];
-    const uint8_t cmd = rx_buf[1];
-    const auto req = rx_buf.subspan(2, rx_buf.size() - 4);
-    auto resp = tx_buf.subspan(2, tx_buf.size() - 4);
-
-    if (addr == 0) {
-      if constexpr (Has_Holding) {
-        if (cmd == 0x06)
-          writeSingleHR(req, resp);
-        else if (cmd == 0x10)
-          writeMultipleHR(req, resp);
-      }
-      if constexpr (Has_Coil) {
-        if (cmd == 0x05)
-          writeSingleCoil(req, resp);
-        else if (cmd == 0x0F)
-          writeMultipleCoils(req, resp);
-      }
-      return std::nullopt;
-    }
-
-    if (addr != address_) return std::nullopt;
-
+  /// Handle a unicast command (addr matched).
+  /// Returns expected resp_size or error.
+  std::expected<uint32_t, Error> dispatch(uint8_t cmd, std::span<uint8_t> req,
+                                          std::span<uint8_t> resp) {
     std::optional<Error> err = Error::IllegalFunction;
     uint32_t resp_size = 0;
 
@@ -383,22 +398,30 @@ class ModbusServer {
       default:
         break;
     }
-
-    tx_buf[0] = addr;
-    tx_buf[1] = cmd;
-    uint32_t total = 2;
-    if (err) {
-      tx_buf[1] = static_cast<uint8_t>(cmd | 0x80U);
-      tx_buf[2] = static_cast<uint8_t>(*err);
-      total += 1;
-    } else {
-      total += resp_size;
-    }
-    auto crc = crc16(tx_buf.first(total));
-    tx_buf[total] = static_cast<uint8_t>(crc);
-    tx_buf[total + 1] = static_cast<uint8_t>(crc >> 8);
-    return total + 2;
+    if (err) return std::unexpected(*err);
+    return resp_size;
   }
+
+  /// Handle a broadcast command (addr == 0).  Only writes are processed.
+  void broadcastWrite(uint8_t cmd, std::span<uint8_t> req,
+                      std::span<uint8_t> resp) {
+    if constexpr (Has_Holding) {
+      if (cmd == 0x06)
+        writeSingleHR(req, resp);
+      else if (cmd == 0x10)
+        writeMultipleHR(req, resp);
+    }
+    if constexpr (Has_Coil) {
+      if (cmd == 0x05)
+        writeSingleCoil(req, resp);
+      else if (cmd == 0x0F)
+        writeMultipleCoils(req, resp);
+    }
+  }
+
+ private:
+  Derived& self() { return static_cast<Derived&>(*this); }
+  uint8_t address_;
 
   // ═══════════════════════════════════════════════════════════════════════
   // Holding registers (0x03, 0x06, 0x10, 0x04)
@@ -409,8 +432,8 @@ class ModbusServer {
     if (rx_buf.size() != 4) return Error::IllegalDataValue;
     const uint16_t start = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
     const uint16_t num = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
-    if (num < 1 || num > 0x007D) return Error::IllegalDataValue;
-    if (static_cast<uint32_t>(start) + num > 0xFFFF)
+    if (num < 1 || num > 0x00'7D) return Error::IllegalDataValue;
+    if (static_cast<uint32_t>(start) + num > 0xFF'FF)
       return Error::IllegalDataAddress;
 
     const uint32_t bc = static_cast<uint32_t>(num) * 2U;
@@ -486,7 +509,7 @@ class ModbusServer {
     }
     if constexpr (detail::isWritable(K::access)) {
       typename K::ValueType v{};
-      std::memcpy(&v, &value, sizeof(value));
+      std::memcpy(&v, &value, sizeof(v));
       err = callOnWrite<K>(ModbusKey<K>{}, v);
     } else {
       err = Error::IllegalFunction;
@@ -499,9 +522,9 @@ class ModbusServer {
     const uint16_t start = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
     const uint16_t num = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
     const uint8_t bc = rx_buf[4];
-    if (num < 1 || num > 0x007B || bc != num * 2U)
+    if (num < 1 || num > 0x00'7B || bc != num * 2U)
       return Error::IllegalDataValue;
-    if (static_cast<uint32_t>(start) + num > 0xFFFF)
+    if (static_cast<uint32_t>(start) + num > 0xFF'FF)
       return Error::IllegalDataAddress;
     if (rx_buf.size() != static_cast<std::size_t>(bc) + 5U)
       return Error::IllegalDataValue;
@@ -595,8 +618,8 @@ class ModbusServer {
     if (rx_buf.size() != 4) return Error::IllegalDataValue;
     const uint16_t addr = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
     const uint16_t raw = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
-    if (raw != 0x0000U && raw != 0xFF00U) return Error::IllegalDataValue;
-    const bool value = (raw == 0xFF00U);
+    if (raw != 0x00'00U && raw != 0xFF'00U) return Error::IllegalDataValue;
+    const bool value = (raw == 0xFF'00U);
 
     bool matched = false;
     std::optional<Error> err;
@@ -631,7 +654,7 @@ class ModbusServer {
     const uint16_t start = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
     const uint16_t num = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
     const uint8_t bc = rx_buf[4];
-    if (num < 1 || num > 0x07B0 || bc != (num + 7U) / 8U)
+    if (num < 1 || num > 0x07'B0 || bc != (num + 7U) / 8U)
       return Error::IllegalDataValue;
     if (static_cast<uint32_t>(start) + num > 0xFFFF)
       return Error::IllegalDataAddress;
@@ -738,10 +761,175 @@ class ModbusServer {
     for (std::size_t i = 0; i + 1U < s.size(); i += 2U)
       std::swap(s[i], s[i + 1U]);
   }
+};
+
+// ============================================================================
+// ModbusServer<TimeUsT, Handlers..., OnRx, OnTx> — transport + multi-address
+//
+// Usage:
+//
+//   struct MyHandler1 : m::ModbusHandler<Regs1, MyHandler1> { … };
+//   m::ModbusServer server{
+//       data_link, time, {300_Us}, rx_buf, tx_buf,
+//       std::move(h1)
+//       // optional LED callbacks (zero overhead if omitted):
+//       , [&]{ rx_led.toggle(); }, [&]{ tx_led.toggle(); }
+//   };
+// ============================================================================
+
+template <m::ifc::CTime TimeUsT, typename OnRx = detail::NoOpCb,
+          typename OnTx = detail::NoOpCb, typename... Handlers>
+  requires m::ifc::CUs<typename TimeUsT::Unit> && (sizeof...(Handlers) >= 1)
+class ModbusServer {
+ public:
+  using Error = ModbusRtuError;
+
+  struct Timings {
+    decltype(std::declval<TimeUsT&>().now()) tx_response_delay;
+  };
+
+  ModbusServer(m::ifc::IDataLink& data_link, TimeUsT& time, Timings timings,
+               std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf,
+               OnRx on_rx = {}, OnTx on_tx = {}, Handlers... handlers)
+      : data_link_(data_link),
+        time_(time),
+        timings_(timings),
+        rx_buf_(rx_buf),
+        tx_buf_(tx_buf),
+        on_rx_(std::move(on_rx)),
+        on_tx_(std::move(on_tx)),
+        handlers_(std::move(handlers)...) {}
+
+  // ── Transport ──────────────────────────────────────────────────────────
+
+  m::Task<bool> coroRun() {
+    if (data_link_.error()) {
+      if (!data_link_.stopReceive()) co_return false;
+      if (!data_link_.stopTransmit()) co_return false;
+    }
+    if (running_) {
+      if (data_link_.startReceive(rx_buf_))
+        co_await m::coroYield();
+      else
+        co_return false;
+    } else {
+      co_return true;
+    }
+
+    auto packet = data_link_.getPacket();
+    while (!packet) {
+      packet = data_link_.getPacket();
+      co_await m::coroYield();
+    }
+
+    tx_packet_size_ = process(packet.value(), tx_buf_);
+    if (!tx_packet_size_) co_return true;
+
+    on_rx_();
+    co_await m::coroDelay(time_, timings_.tx_response_delay);
+
+    if (auto size = tx_packet_size_.value(); size) {
+      if (!data_link_.startTransmit(tx_buf_.first(size))) co_return false;
+      on_tx_();
+    }
+
+    auto tx_done = data_link_.transmitDone();
+    while (!tx_done) {
+      tx_done = data_link_.transmitDone();
+      co_await m::coroYield();
+    }
+    co_return tx_done.value();
+  }
+
+  bool start() { return running_ ? false : (running_ = true); }
+  bool stop() { return !running_ ? false : (running_ = false); }
+
+ private:
+  m::ifc::IDataLink& data_link_;
+  TimeUsT& time_;
+  Timings timings_;
+  std::span<uint8_t> rx_buf_;
+  std::span<uint8_t> tx_buf_;
+  [[no_unique_address]] OnRx on_rx_;
+  [[no_unique_address]] OnTx on_tx_;
+  std::tuple<Handlers...> handlers_;
+  std::optional<uint32_t> tx_packet_size_;
+  bool running_ = true;
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // process() — CRC → address → find handler → dispatch → response
+  // ═══════════════════════════════════════════════════════════════════════
+
+  std::optional<uint32_t> process(std::span<uint8_t> rx_buf,
+                                  std::span<uint8_t> tx_buf) {
+    if (rx_buf.size() < 4 || rx_buf.size() > 256) return std::nullopt;
+
+    const auto no_crc = rx_buf.first(rx_buf.size() - 2);
+    if (crc16(no_crc) !=
+        (static_cast<uint16_t>(rx_buf[rx_buf.size() - 2]) |
+         (static_cast<uint16_t>(rx_buf[rx_buf.size() - 1]) << 8)))
+      return std::nullopt;
+
+    const uint8_t addr = rx_buf[0];
+    const uint8_t cmd = rx_buf[1];
+    const auto req = rx_buf.subspan(2, rx_buf.size() - 4);
+    auto resp = tx_buf.subspan(2, tx_buf.size() - 4);
+
+    // ── Broadcast (address 0) — apply writes to ALL handlers ──────────
+    if (addr == 0) {
+      std::apply([&](auto&... h) { ((h.broadcastWrite(cmd, req, resp)), ...); },
+                 handlers_);
+      return std::nullopt;
+    }
+
+    // ── Unicast — find handler by address ─────────────────────────────
+    std::optional<Error> err;
+    uint32_t resp_size = 0;
+    bool found = false;
+
+    std::apply(
+        [&](auto&... h) {
+          auto tryHandler = [&](auto& handler) {
+            if (found) return;
+            if (handler.getAddress() != addr) return;
+            found = true;
+            auto result = handler.dispatch(cmd, req, resp);
+            if (!result) {
+              err = result.error();
+            } else {
+              resp_size = *result;
+            }
+          };
+          (tryHandler(h), ...);
+        },
+        handlers_);
+
+    if (!found) return std::nullopt;
+
+    // ── Build response ────────────────────────────────────────────────
+    tx_buf[0] = addr;
+    tx_buf[1] = cmd;
+    uint32_t total = 2;
+    if (err) {
+      tx_buf[1] = static_cast<uint8_t>(cmd | 0x80U);
+      tx_buf[2] = static_cast<uint8_t>(*err);
+      total += 1;
+    } else {
+      total += resp_size;
+    }
+    auto crc = crc16(tx_buf.first(total));
+    tx_buf[total] = static_cast<uint8_t>(crc);
+    tx_buf[total + 1] = static_cast<uint8_t>(crc >> 8);
+    return total + 2;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CRC16
+  // ═══════════════════════════════════════════════════════════════════════
 
   static uint16_t crc16(std::span<const uint8_t> data) {
-    static constexpr uint16_t table[2] = {0x0000, 0xA001};
-    uint16_t crc = 0xFFFF;
+    static constexpr uint16_t table[2] = {0x00'00, 0xA0'01};
+    uint16_t crc = 0xFF'FF;
     for (uint8_t byte : data) {
       crc ^= byte;
       for (uint8_t bit = 0; bit < 8U; ++bit) {

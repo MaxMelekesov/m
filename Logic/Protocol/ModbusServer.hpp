@@ -54,11 +54,11 @@ namespace m {
  *     // onWrite can return std::optional<ModbusRtuError> for validation.
  *   };
  *
- *   // 3. Create handler(s), inject into ModbusServer.
+ *   // 3. Handler(s) by reference — still accessible after server creation.
  *   MyHandler h{0x01, …};
  *   m::ModbusServer server{
  *       data_link, time, {300_Us}, rx_buf, tx_buf,
- *       std::move(h)
+ *       h  // no std::move — h.setAddress() remains valid
  *       // optional LED callbacks (zero overhead if omitted):
  *       , []{ rx_led.toggle(); }, []{ tx_led.toggle(); }
  *   };
@@ -790,7 +790,7 @@ class ModbusServer {
 
   ModbusServer(m::ifc::IDataLink& data_link, TimeUsT& time, Timings timings,
                std::span<uint8_t> rx_buf, std::span<uint8_t> tx_buf,
-               OnRx on_rx = {}, OnTx on_tx = {}, Handlers... handlers)
+               OnRx on_rx = {}, OnTx on_tx = {}, Handlers&... handlers)
       : data_link_(data_link),
         time_(time),
         timings_(timings),
@@ -798,7 +798,7 @@ class ModbusServer {
         tx_buf_(tx_buf),
         on_rx_(std::move(on_rx)),
         on_tx_(std::move(on_tx)),
-        handlers_(std::move(handlers)...) {}
+        handlers_(handlers...) {}
 
   // ── Transport ──────────────────────────────────────────────────────────
 
@@ -852,7 +852,7 @@ class ModbusServer {
   std::span<uint8_t> tx_buf_;
   [[no_unique_address]] OnRx on_rx_;
   [[no_unique_address]] OnTx on_tx_;
-  std::tuple<Handlers...> handlers_;
+  std::tuple<Handlers&...> handlers_;
   std::optional<uint32_t> tx_packet_size_;
   bool running_ = true;
 

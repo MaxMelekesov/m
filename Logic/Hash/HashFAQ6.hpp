@@ -19,17 +19,15 @@
 namespace m {
 class HashFAQ6 final : public ifc::IHash<4> {
  public:
-  using Hash = m::ifc::IHash<4>::type;
-
-  bool check(std::span<uint8_t const> data, Hash& hash) override {
+  bool check(std::span<uint8_t const> data, Storage& hash) override {
     if (std::bit_cast<uint32_t>(hash) == 0) return false;
     auto calculated = calc(data);
     auto res = hash == calculated;
     return res;
   }
 
-  Hash calc(std::span<uint8_t const> data) override {
-    Hash hash;
+  Storage calc(std::span<uint8_t const> data) override {
+    Storage hash;
     auto temp = faq6(data);
     m::serialize(hash, temp);
     return hash;

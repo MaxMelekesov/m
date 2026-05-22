@@ -16,31 +16,31 @@
 #include <span>
 
 namespace m::ifc {
-template <uint32_t hash_bytes = 4>
+template <uint32_t Hash_Bytes = 4>
 class IHash {
  public:
-  static constexpr uint32_t Hash_Bytes = hash_bytes;
-  using type = std::array<uint8_t, hash_bytes>;
+  using Storage = std::array<uint8_t, Hash_Bytes>;
   virtual ~IHash() {}
-  virtual bool check(std::span<uint8_t const> data, type& hash) = 0;
+  virtual bool check(std::span<uint8_t const> data, Storage& hash) = 0;
 
-  virtual type calc(std::span<uint8_t const> data) = 0;
+  virtual Storage calc(std::span<uint8_t const> data) = 0;
 
-  constexpr uint32_t size() const { return hash_bytes; }
+  constexpr uint32_t size() const { return Hash_Bytes; }
 };
 
 template <typename T>
 concept CHash = requires(T hash, std::span<uint8_t const> data,
-                         typename T::type& hash_val) {
-  typename T::type;
+                         typename T::Storage& hash_val) {
+  typename T::Storage;
   { hash.check(data, hash_val) } -> std::same_as<bool>;
-  { hash.calc(data) } -> std::same_as<typename T::type>;
+  { hash.calc(data) } -> std::same_as<typename T::Storage>;
   { hash.size() } -> std::same_as<uint32_t>;
 };
 
-template <typename T, uint32_t hash_bytes>
+template <typename T, uint32_t Hash_Bytes>
 concept CHashOf =
-    CHash<T> && std::same_as<typename T::type, std::array<uint8_t, hash_bytes>>;
+    CHash<T> &&
+    std::same_as<typename T::Storage, std::array<uint8_t, Hash_Bytes>>;
 
 static_assert(CHash<IHash<4>>, "IHash must satisfy CHash concept");
 static_assert(CHashOf<IHash<4>, 4>, "IHash<4> must satisfy CHashOf<4> concept");

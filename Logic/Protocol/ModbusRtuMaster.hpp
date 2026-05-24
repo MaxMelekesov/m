@@ -38,8 +38,7 @@ class ModbusRtuMaster {
         start_rx_timer_(time),
         rx_timer_(time) {}
 
-#pragma pack(push, 1)
-  struct Unit {
+  struct __attribute__((packed)) Unit {
    public:
     Unit(uint8_t addr, uint16_t start_reg, uint16_t count)
         : addr_(addr), start_reg_(start_reg), reg_count_(count) {}
@@ -55,7 +54,6 @@ class ModbusRtuMaster {
 
     friend class ModbusRtuMaster;
   };
-#pragma pack(pop)
   static_assert(sizeof(Unit) == 8, "Wrong sizeof(ModbusRtuMaster::Unit)");
 
   uint16_t readMhrResponseSize(Unit& unit) { return unit.reg_count_ * 2u + 5u; }

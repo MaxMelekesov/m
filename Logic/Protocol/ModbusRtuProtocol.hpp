@@ -223,12 +223,10 @@ class [[deprecated("Use ModbusRtuMultiProtocol instead")]] ModbusRtuProtocol {
 
   bool running_ = true;
 
-#pragma pack(push, 1)
-  struct AddrMem {
+  struct __attribute__((packed)) AddrMem {
     uint32_t addr;
     std::array<uint8_t, 4> hash;
   };
-#pragma pack(pop)
   static_assert(sizeof(AddrMem) == 8, "Wrong struct AddrMem sizeof");
 
   std::optional<uint32_t> process(std::span<uint8_t> rx_buf,

@@ -8,8 +8,8 @@
  * Copyright (c) 2025 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef TSERDES_H
-#define TSERDES_H
+#ifndef TSERDES_HPP
+#define TSERDES_HPP
 
 #include <cstdint>
 #include <cstring>
@@ -63,4 +63,4 @@ std::size_t serialize(std::span<uint8_t> bytes, Args&&... args) {
 
 }  // namespace m
 
-#endif  // TSERDES_H
+#endif  // TSERDES_HPP

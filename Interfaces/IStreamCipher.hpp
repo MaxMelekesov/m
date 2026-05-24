@@ -25,7 +25,7 @@ class IStreamCipher {
   virtual std::size_t keySize() = 0;
   virtual std::size_t nonceSize() = 0;
 
-  virtual void init(const uint8_t* key, const uint8_t* nonce) = 0;
+  virtual void init(std::span<const uint8_t> key, std::span<const uint8_t> nonce) = 0;
 
   virtual void process(std::span<uint8_t> data) = 0;
 
@@ -35,7 +35,7 @@ class IStreamCipher {
 
 template <typename T>
 concept CStreamCipher =
-    requires(T cipher, const uint8_t* key, const uint8_t* nonce,
+    requires(T cipher, std::span<const uint8_t> key, std::span<const uint8_t> nonce,
              std::span<uint8_t> data) {
       { cipher.keySize() } -> std::same_as<std::size_t>;
       { cipher.nonceSize() } -> std::same_as<std::size_t>;

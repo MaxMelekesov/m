@@ -8,14 +8,51 @@
  * Copyright (c) 2026 Max Melekesov <max.melekesov@gmail.com>
  */
 
+/*
+ * @example
+ * // --- Driver (Tag = own class → conflict domain) ---
+ * class Spi1 final : public m::mcu::Peripheral<Spi1> {
+ *  public:
+ *   explicit Spi1(HwKey key, SPI_Handle* h) : Peripheral(key), h_(h) {
+ *     if (HAL_SPI_Init(h_) != HAL_OK) setInitFailed();  // rollback Tag
+ *   }
+ *   ~Spi1() { if (needsCleanup()) HAL_SPI_DeInit(h_); }   // skip if moved-from
+ *   Spi1(const Spi1&) = delete;
+ *   Spi1& operator=(const Spi1&) = delete;
+ *   Spi1(Spi1&&) = default;                              // move → no deinit
+ *   Spi1& operator=(Spi1&&) = delete;
+ *  private:
+ *   SPI_Handle* h_;
+ * };
+ *
+ * // --- Two drivers sharing one pin-mux use the SAME Tag ---
+ * struct Uart1Spi1PinMux {};  // Tag = conflict boundary, not driver name
+ * class Uart1 final : public m::mcu::Peripheral<Uart1Spi1PinMux> { ... };
+ * class Spi1Alt final : public m::mcu::Peripheral<Uart1Spi1PinMux> { ... };
+ * // Only one can be active at a time.
+ *
+ * // --- Hardware ---
+ * struct MyHW : m::mcu::Hardware<MyHW, Spi1> {};
+ * auto& hw = MyHW::getInstance();
+ * auto spi = hw.get<Spi1>(&hspi1);
+ * if (!spi) { // Already_Taken or Init_Failed }
+ */
+
 #ifndef HARDWARE_HPP
 #define HARDWARE_HPP
 
-#include <optional>
+#include <concepts>
+#include <cstdint>
+#include <expected>
 #include <type_traits>
 #include <utility>
 
 namespace m::mcu {
+
+enum class HwError : uint8_t {
+  Already_Taken,
+  Init_Failed,
+};
 
 template <typename PeripheralTag>
 class Peripheral;
@@ -23,9 +60,10 @@ class Peripheral;
 template <typename T>
 concept CPeripheral = requires {
   typename T::Tag;
-  requires std::is_base_of_v<Peripheral<typename T::Tag>, T>;
-  requires std::is_move_constructible_v<T>;
+  requires std::derived_from<T, Peripheral<typename T::Tag>>;
+  requires std::is_nothrow_move_constructible_v<T>;
   requires !std::is_copy_constructible_v<T>;
+  requires std::is_nothrow_destructible_v<T>;
 };
 
 template <typename PeripheralTag>
@@ -50,41 +88,40 @@ class Peripheral {
 
   Peripheral(const Peripheral&) = delete;
   Peripheral& operator=(const Peripheral&) = delete;
+  Peripheral& operator=(Peripheral&&) = delete;
 
   Peripheral(Peripheral&& other) noexcept
-      : active_(std::exchange(other.active_, false)) {}
+      : cleanup_(std::exchange(other.cleanup_, false)) {}
 
-  Peripheral& operator=(Peripheral&& other) noexcept {
-    if (this != &other) {
-      if (active_) {
-        release();
-      }
-      active_ = std::exchange(other.active_, false);
-    }
-    return *this;
-  }
-
-  virtual ~Peripheral() {
-    if (active_) {
+  ~Peripheral() noexcept {
+    if (cleanup_) {
       release();
     }
   }
 
-  [[nodiscard]] explicit operator bool() const { return active_; }
-
-  [[nodiscard]] static bool isTaken() { return taken_; }
-
  protected:
-  Peripheral(const HwKey&) { taken_ = true; }
+  Peripheral(const HwKey&) { tag_held_ = true; }
+
+  /// True unless moved-from.  Still true after setInitFailed() —
+  /// partially-initialised hardware must be cleaned up.
+  [[nodiscard]] bool needsCleanup() const noexcept { return cleanup_; }
+
+  // Call in constructor when HAL init fails.
+  void setInitFailed() noexcept { tag_held_ = false; }
 
  private:
-  static inline bool taken_ = false;
-  bool active_ = true;
+  template <typename, CPeripheral...>
+  friend class Hardware;
+
+  static inline bool tag_held_ = false;
+  bool cleanup_ = true;
 
   void release() {
-    taken_ = false;
-    active_ = false;
+    tag_held_ = false;
+    cleanup_ = false;
   }
+
+  [[nodiscard]] static bool isTagHeld() { return tag_held_; }
 };
 
 template <typename Derived, CPeripheral... Drivers>
@@ -102,11 +139,16 @@ class Hardware {
 
   template <typename P, typename... Args>
     requires(std::is_same_v<P, Drivers> || ...)
-  [[nodiscard]] auto get(Args&&... args) -> std::optional<P> {
-    if (Peripheral<typename P::Tag>::isTaken()) {
-      return std::nullopt;
+  [[nodiscard]] auto get(Args&&... args) -> std::expected<P, HwError> {
+    if (Peripheral<typename P::Tag>::isTagHeld()) {
+      return std::unexpected{HwError::Already_Taken};
     }
-    return P{typename P::HwKey{}, std::forward<Args>(args)...};
+    P candidate{typename P::HwKey{}, std::forward<Args>(args)...};
+    // If setInitFailed() was called, tag_held_ is already false.
+    if (!Peripheral<typename P::Tag>::isTagHeld()) {
+      return std::unexpected{HwError::Init_Failed};
+    }
+    return candidate;
   }
 
  protected:

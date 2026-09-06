@@ -50,7 +50,7 @@
 namespace m::mcu {
 
 enum class HwError : uint8_t {
-  Already_Taken,
+  Already_Taken = 1,
   Init_Failed,
 };
 

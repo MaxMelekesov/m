@@ -18,6 +18,7 @@
 #include <ITime.hpp>
 #include <Us.hpp>
 #include <algorithm>
+#include <array>
 #include <concepts>
 #include <cstdint>
 #include <cstring>
@@ -54,13 +55,12 @@ namespace m {
  *     // onWrite can return std::optional<ModbusRtuError> for validation.
  *   };
  *
- *   // 3. Handler(s) by reference — still accessible after server creation.
+ *   // 3. Handler(s) are passed by reference (must outlive the server).
  *   MyHandler h{0x01, …};
  *   m::ModbusServer server{
  *       data_link, time, {300_Us}, rx_buf, tx_buf,
- *       h  // no std::move — h.setAddress() remains valid
- *       // optional LED callbacks (zero overhead if omitted):
- *       , []{ rx_led.toggle(); }, []{ tx_led.toggle(); }
+ *       []{ rx_led.toggle(); }, []{ tx_led.toggle(); },  // optional LEDs
+ *       h  // by reference — h.setAddress() stays valid
  *   };
  *
  *   // 4. Coroutine loop.
@@ -74,7 +74,7 @@ namespace m {
  *   MyHandler h1{0x01, …};
  *   OtherHandler h2{0x02, …};
  *   m::ModbusServer server{data_link, time, {300_Us}, rx_buf, tx_buf,
- *                          std::move(h1), std::move(h2)};
+ *                          m::detail::NoOpCb{}, m::detail::NoOpCb{}, h1, h2};
  *   // Broadcast writes (addr=0) are forwarded to ALL handlers.
  *
  * Compile-time checks:
@@ -176,15 +176,25 @@ consteval bool allAddressesUnique() {
   };
 
   constexpr auto infos = []<std::size_t... Is>(std::index_sequence<Is...>) {
-    return std::array<Info, N>{{
-        {std::tuple_element_t<Is, Tuple>::address,
-         std::tuple_element_t<Is, Tuple>::isHolding
-             ? std::tuple_element_t<Is, Tuple>::Type::regCount
-             : 1U,
-         std::tuple_element_t<Is, Tuple>::isHolding ? Cat::Holding
-         : std::tuple_element_t<Is, Tuple>::isCoil  ? Cat::Coil
-                                                    : Cat::Discrete}...,
-    }};
+    constexpr auto make = []<typename K>() {
+      constexpr uint16_t count = [] {
+        if constexpr (K::isHolding)
+          return K::Type::regCount;
+        else
+          return 1U;
+      }();
+      constexpr Cat cat = [] {
+        if constexpr (K::isHolding)
+          return Cat::Holding;
+        else if constexpr (K::isCoil)
+          return Cat::Coil;
+        else
+          return Cat::Discrete;
+      }();
+      return Info{K::address, count, cat};
+    };
+    return std::array<Info, N>{
+        make.template operator()<std::tuple_element_t<Is, Tuple>>()...};
   }(std::make_index_sequence<N>{});
 
   for (std::size_t i = 0; i < N; ++i) {
@@ -234,6 +244,8 @@ struct ModbusType {
   static constexpr size_t paddedSize = (sizeof(T) + 1U) & ~1U;
   static constexpr uint16_t regCount = static_cast<uint16_t>(paddedSize / 2U);
   static_assert(paddedSize >= sizeof(T));
+  static_assert((sizeof(T) & 1U) == 0,
+                "ModbusReg value type must be word-aligned (even size)");
 };
 
 // ============================================================================
@@ -250,6 +262,9 @@ struct ModbusReg {
   static constexpr bool isHolding = true;
   static constexpr bool isCoil = false;
   static constexpr bool isDiscrete = false;
+
+  static_assert(static_cast<uint32_t>(Addr) + Type::regCount <= 0x1'0000,
+                "ModbusReg key overflows the 64K register space");
 };
 
 // ============================================================================
@@ -441,38 +456,53 @@ class ModbusHandler {
     tx_buf[0] = static_cast<uint8_t>(bc);
     auto regs = tx_buf.subspan(1, bc);
 
-    bool matched = false;
+    // Блочное чтение: диапазон может покрывать несколько подряд идущих
+    // ключей. «Дыры» (адреса без ключа) и WO-ключи читаются как 0.
+    // Ключ, покрытый диапазоном лишь частично (разрез u32/float), — ошибка.
     std::optional<Error> err;
     std::apply(
-        [&](auto... keys) {
-          (tryReadHRKey(start, num, regs, keys, err, matched), ...);
-        },
+        [&](auto... keys) { (checkReadHrKey(start, num, keys, err), ...); },
         typename RegInfo::Keys{});
-    if (!matched) return Error::IllegalDataAddress;
     if (err) return err;
+
+    std::memset(regs.data(), 0, regs.size());
+    std::apply(
+        [&](auto... keys) { (fillReadHrKey(start, num, regs, keys), ...); },
+        typename RegInfo::Keys{});
     swapBytesInSpan(regs);
     return std::nullopt;
   }
 
+  // Если ключ пересекает диапазон, но не входит в него целиком — ошибка.
   template <typename Key>
-  void tryReadHRKey(uint16_t addr, uint16_t num, std::span<uint8_t> regs,
-                    Key /*tag*/, std::optional<Error>& err, bool& matched) {
+  void checkReadHrKey(uint16_t start, uint16_t num, Key /*tag*/,
+                      std::optional<Error>& err) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isHolding) return;
-    if (matched) return;
-    if (K::address != addr) return;
-    matched = true;
-    if (num != K::Type::regCount) {
-      err = Error::IllegalDataValue;
-      return;
+    if constexpr (K::isHolding) {
+      if (err) return;
+      const uint32_t k_start = K::address;
+      const uint32_t k_end = k_start + K::Type::regCount;
+      const uint32_t r_end = static_cast<uint32_t>(start) + num;
+      if (k_end <= start || k_start >= r_end) return;  // нет пересечения
+      if (k_start < start || k_end > r_end)
+        err = Error::IllegalDataValue;  // ключ разрезан диапазоном
     }
-    if constexpr (detail::isReadable(K::access)) {
+  }
+
+  // Заполняет ответ значением целого ключа (для читаемых), остальное — 0.
+  template <typename Key>
+  void fillReadHrKey(uint16_t start, uint16_t num, std::span<uint8_t> regs,
+                     Key /*tag*/) {
+    using K = std::remove_cvref_t<Key>;
+    if constexpr (K::isHolding && detail::isReadable(K::access)) {
+      const uint32_t k_start = K::address;
+      const uint32_t k_end = k_start + K::Type::regCount;
+      const uint32_t r_end = static_cast<uint32_t>(start) + num;
+      if (k_start < start || k_end > r_end) return;  // только целый ключ
       auto v = self().onRead(ModbusKey<K>{});
       checkReadReturnType<K>(v);
-      std::memset(regs.data(), 0, K::Type::paddedSize);
-      std::memcpy(regs.data(), &v, sizeof(v));
-    } else {
-      err = Error::IllegalFunction;
+      const uint32_t off = static_cast<uint32_t>(k_start - start) * 2U;
+      std::memcpy(regs.data() + off, &v, sizeof(v));
     }
   }
 
@@ -499,20 +529,21 @@ class ModbusHandler {
   void tryWriteSingleHRKey(uint16_t addr, uint16_t value, Key /*tag*/,
                            std::optional<Error>& err, bool& matched) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isHolding) return;
-    if (matched) return;
-    if (K::address != addr) return;
-    matched = true;
-    if (K::Type::regCount != 1) {
-      err = Error::IllegalDataValue;
-      return;
-    }
-    if constexpr (detail::isWritable(K::access)) {
-      typename K::ValueType v{};
-      std::memcpy(&v, &value, sizeof(v));
-      err = callOnWrite<K>(ModbusKey<K>{}, v);
-    } else {
-      err = Error::IllegalFunction;
+    if constexpr (K::isHolding) {
+      if (matched) return;
+      if (K::address != addr) return;
+      matched = true;
+      if (K::Type::regCount != 1) {
+        err = Error::IllegalDataValue;
+        return;
+      }
+      if constexpr (detail::isWritable(K::access)) {
+        typename K::ValueType v{};
+        std::memcpy(&v, &value, sizeof(v));
+        err = callOnWrite<K>(ModbusKey<K>{}, v);
+      } else {
+        err = Error::IllegalFunction;
+      }
     }
   }
 
@@ -532,42 +563,72 @@ class ModbusHandler {
     auto regs = rx_buf.subspan(5, num * 2U);
     swapBytesInSpan(regs);
 
-    bool matched = false;
+    // Блочная запись: диапазон должен целиком покрываться ЦЕЛЫМИ RW-ключами
+    // без «дыр» и без разрезанных u32/float ключей. Сначала валидация (без
+    // побочных эффектов), затем применение — запись «атомарная».
+    bool has_partial = false;
+    bool has_read_only = false;
+    uint32_t covered_words = 0;
+    std::apply(
+        [&](auto... keys) {
+          (checkWriteHrKey(start, num, covered_words, has_partial,
+                           has_read_only, keys),
+           ...);
+        },
+        typename RegInfo::Keys{});
+    if (has_partial) return Error::IllegalDataValue;
+    if (has_read_only) return Error::IllegalFunction;
+    if (covered_words != num) return Error::IllegalDataAddress;  // «дыра»
+
     std::optional<Error> err;
     std::apply(
         [&](auto... keys) {
-          (tryWriteMultiHRKey(start, num, regs, keys, err, matched), ...);
+          (applyWriteHrKey(start, num, regs, err, keys), ...);
         },
         typename RegInfo::Keys{});
-    if (!matched) return Error::IllegalDataAddress;
     if (err) return err;
     std::copy(rx_buf.begin(), rx_buf.begin() + 4, tx_buf.begin());
     return std::nullopt;
   }
 
   template <typename Key>
-  void tryWriteMultiHRKey(uint16_t addr, uint16_t num, std::span<uint8_t> regs,
-                          Key /*tag*/, std::optional<Error>& err,
-                          bool& matched) {
+  void checkWriteHrKey(uint16_t start, uint16_t num, uint32_t& covered_words,
+                       bool& has_partial, bool& has_read_only, Key /*tag*/) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isHolding) return;
-    if (matched) return;
-    if (K::address != addr) return;
-    matched = true;
-    if (num != K::Type::regCount) {
-      err = Error::IllegalDataValue;
-      return;
+    if constexpr (K::isHolding) {
+      const uint32_t k_start = K::address;
+      const uint32_t k_end = k_start + K::Type::regCount;
+      const uint32_t r_end = static_cast<uint32_t>(start) + num;
+      if (k_end <= start || k_start >= r_end) return;  // нет пересечения
+      if (k_start < start || k_end > r_end) {
+        has_partial = true;  // ключ разрезан диапазоном
+        return;
+      }
+      if constexpr (detail::isWritable(K::access))
+        covered_words += K::Type::regCount;
+      else
+        has_read_only = true;
     }
-    if constexpr (detail::isWritable(K::access)) {
+  }
+
+  template <typename Key>
+  void applyWriteHrKey(uint16_t start, uint16_t num, std::span<uint8_t> regs,
+                       std::optional<Error>& err, Key /*tag*/) {
+    using K = std::remove_cvref_t<Key>;
+    if constexpr (K::isHolding && detail::isWritable(K::access)) {
+      if (err) return;
+      const uint32_t k_start = K::address;
+      const uint32_t k_end = k_start + K::Type::regCount;
+      const uint32_t r_end = static_cast<uint32_t>(start) + num;
+      if (k_start < start || k_end > r_end) return;  // только целый ключ
       typename K::ValueType v{};
-      if (regs.size() < sizeof(v)) {
+      const uint32_t off = static_cast<uint32_t>(k_start - start) * 2U;
+      if (off + sizeof(v) > regs.size()) {
         err = Error::IllegalDataValue;
         return;
       }
-      std::memcpy(&v, regs.data(), sizeof(v));
+      std::memcpy(&v, regs.data() + off, sizeof(v));
       err = callOnWrite<K>(ModbusKey<K>{}, v);
-    } else {
-      err = Error::IllegalFunction;
     }
   }
 
@@ -603,13 +664,14 @@ class ModbusHandler {
   void tryReadCoilKey(uint16_t start, uint16_t num, std::span<uint8_t> tx_buf,
                       Key /*tag*/, bool& any_match) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isCoil) return;
-    if (K::address < start || K::address >= start + num) return;
-    if constexpr (detail::isReadable(K::access)) {
-      bool v = self().onRead(ModbusKey<K>{});
-      any_match = true;
-      const uint16_t off = K::address - start;
-      if (v) tx_buf[1 + off / 8U] |= static_cast<uint8_t>(1U << (off % 8U));
+    if constexpr (K::isCoil) {
+      if (K::address < start || K::address >= start + num) return;
+      if constexpr (detail::isReadable(K::access)) {
+        bool v = self().onRead(ModbusKey<K>{});
+        any_match = true;
+        const uint16_t off = K::address - start;
+        if (v) tx_buf[1 + off / 8U] |= static_cast<uint8_t>(1U << (off % 8U));
+      }
     }
   }
 
@@ -638,14 +700,15 @@ class ModbusHandler {
   void tryWriteSingleCoilKey(uint16_t addr, bool value, Key /*tag*/,
                              std::optional<Error>& err, bool& matched) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isCoil) return;
-    if (matched) return;
-    if (K::address != addr) return;
-    matched = true;
-    if constexpr (detail::isWritable(K::access))
-      err = callOnWrite<K>(ModbusKey<K>{}, value);
-    else
-      err = Error::IllegalFunction;
+    if constexpr (K::isCoil) {
+      if (matched) return;
+      if (K::address != addr) return;
+      matched = true;
+      if constexpr (detail::isWritable(K::access))
+        err = callOnWrite<K>(ModbusKey<K>{}, value);
+      else
+        err = Error::IllegalFunction;
+    }
   }
 
   std::optional<Error> writeMultipleCoils(std::span<uint8_t> rx_buf,
@@ -678,13 +741,14 @@ class ModbusHandler {
                             std::span<const uint8_t> bits, Key /*tag*/,
                             std::optional<Error>& first_err) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isCoil) return;
-    if (K::address < start || K::address >= start + num) return;
-    if constexpr (detail::isWritable(K::access)) {
-      const uint16_t off = K::address - start;
-      const bool v = (bits[off / 8U] >> (off % 8U)) & 1U;
-      auto err = callOnWrite<K>(ModbusKey<K>{}, v);
-      if (err && !first_err) first_err = err;
+    if constexpr (K::isCoil) {
+      if (K::address < start || K::address >= start + num) return;
+      if constexpr (detail::isWritable(K::access)) {
+        const uint16_t off = K::address - start;
+        const bool v = (bits[off / 8U] >> (off % 8U)) & 1U;
+        auto err = callOnWrite<K>(ModbusKey<K>{}, v);
+        if (err && !first_err) first_err = err;
+      }
     }
   }
 
@@ -721,13 +785,14 @@ class ModbusHandler {
                           std::span<uint8_t> tx_buf, Key /*tag*/,
                           bool& any_match) {
     using K = std::remove_cvref_t<Key>;
-    if constexpr (!K::isDiscrete) return;
-    if (K::address < start || K::address >= start + num) return;
-    if constexpr (detail::isReadable(K::access)) {
-      bool v = self().onRead(ModbusKey<K>{});
-      any_match = true;
-      const uint16_t off = K::address - start;
-      if (v) tx_buf[1 + off / 8U] |= static_cast<uint8_t>(1U << (off % 8U));
+    if constexpr (K::isDiscrete) {
+      if (K::address < start || K::address >= start + num) return;
+      if constexpr (detail::isReadable(K::access)) {
+        bool v = self().onRead(ModbusKey<K>{});
+        any_match = true;
+        const uint16_t off = K::address - start;
+        if (v) tx_buf[1 + off / 8U] |= static_cast<uint8_t>(1U << (off % 8U));
+      }
     }
   }
 
@@ -764,16 +829,15 @@ class ModbusHandler {
 };
 
 // ============================================================================
-// ModbusServer<TimeUsT, Handlers..., OnRx, OnTx> — transport + multi-address
+// ModbusServer<TimeUsT, OnRx, OnTx, Handlers...> — transport + multi-address
 //
-// Usage:
+// Usage (handlers are stored by reference — they must outlive the server):
 //
 //   struct MyHandler1 : m::ModbusHandler<Regs1, MyHandler1> { … };
 //   m::ModbusServer server{
 //       data_link, time, {300_Us}, rx_buf, tx_buf,
-//       std::move(h1)
-//       // optional LED callbacks (zero overhead if omitted):
-//       , [&]{ rx_led.toggle(); }, [&]{ tx_led.toggle(); }
+//       []{ rx_led.toggle(); }, []{ tx_led.toggle(); },  // optional LEDs
+//       h1  // lvalue reference (no std::move)
 //   };
 // ============================================================================
 
@@ -843,6 +907,21 @@ class ModbusServer {
 
   bool start() { return running_ ? false : (running_ = true); }
   bool stop() { return !running_ ? false : (running_ = false); }
+
+  /// Modbus CRC-16 (poly 0xA001, reflected); result goes low byte first.
+  static constexpr uint16_t crc16(std::span<const uint8_t> data) {
+    static constexpr uint16_t table[2] = {0x00'00, 0xA0'01};
+    uint16_t crc = 0xFF'FF;
+    for (uint8_t byte : data) {
+      crc ^= byte;
+      for (uint8_t bit = 0; bit < 8U; ++bit) {
+        const uint16_t xorv = crc & 0x01U;
+        crc >>= 1U;
+        crc ^= table[xorv];
+      }
+    }
+    return crc;
+  }
 
  private:
   m::ifc::IDataLink& data_link_;
@@ -921,24 +1000,6 @@ class ModbusServer {
     tx_buf[total] = static_cast<uint8_t>(crc);
     tx_buf[total + 1] = static_cast<uint8_t>(crc >> 8);
     return total + 2;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // CRC16
-  // ═══════════════════════════════════════════════════════════════════════
-
-  static uint16_t crc16(std::span<const uint8_t> data) {
-    static constexpr uint16_t table[2] = {0x00'00, 0xA0'01};
-    uint16_t crc = 0xFF'FF;
-    for (uint8_t byte : data) {
-      crc ^= byte;
-      for (uint8_t bit = 0; bit < 8U; ++bit) {
-        const uint16_t xorv = crc & 0x01U;
-        crc >>= 1U;
-        crc ^= table[xorv];
-      }
-    }
-    return crc;
   }
 };
 

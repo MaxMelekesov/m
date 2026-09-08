@@ -21,8 +21,8 @@
 class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
  public:
   TimeUs() {
-    TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-    TIM_MasterConfigTypeDef sMasterConfig = {0};
+    TIM_ClockConfigTypeDef s_clock_source_config = {};
+    TIM_MasterConfigTypeDef s_master_config = {};
 
     htim5_.Instance = TIM5;
     htim5_.Init.Prescaler = (HAL_RCC_GetPCLK1Freq() / 1'000'000) - 1;
@@ -37,16 +37,16 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
 
     HAL_TIM_Base_Init(&htim5_);
 
-    sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-    HAL_TIM_ConfigClockSource(&htim5_, &sClockSourceConfig);
+    s_clock_source_config.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+    HAL_TIM_ConfigClockSource(&htim5_, &s_clock_source_config);
 
-    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-    HAL_TIMEx_MasterConfigSynchronization(&htim5_, &sMasterConfig);
+    s_master_config.MasterOutputTrigger = TIM_TRGO_RESET;
+    s_master_config.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+    HAL_TIMEx_MasterConfigSynchronization(&htim5_, &s_master_config);
 
     HAL_TIM_Base_Start(&htim5_);
   }
-
+  ~TimeUs() {}
   TimeUs(const TimeUs&) = delete;
   TimeUs& operator=(const TimeUs&) = delete;
   TimeUs(TimeUs&&) = delete;
@@ -55,10 +55,12 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
   void delay(Us<uint32_t> value) override {
     Us<uint32_t> start = Us<uint32_t>{htim5_.Instance->CNT};
     Us<uint32_t> delay = Us<uint32_t>{value.value()};
-    while (1) {
+    while (true) {
       Us<uint32_t> now = Us<uint32_t>{htim5_.Instance->CNT};
       Us<uint32_t> diff = now - start;
-      if (diff >= delay) break;
+      if (diff >= delay) {
+        break;
+      }
     }
   }
 
@@ -71,12 +73,13 @@ class TimeUs final : public m::ifc::ITime<Us<uint32_t>> {
   }
 
  private:
-  TIM_HandleTypeDef htim5_{0};
+  TIM_HandleTypeDef htim5_{};
 };
 
 class TimeMs final : public m::ifc::ITime<Ms<uint32_t>> {
  public:
-  TimeMs() {}
+  TimeMs() = default;
+  ~TimeMs() {}
   TimeMs(const TimeMs&) = delete;
   TimeMs& operator=(const TimeMs&) = delete;
   TimeMs(TimeMs&&) = delete;

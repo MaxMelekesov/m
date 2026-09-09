@@ -12,11 +12,12 @@
 #define MODBUS_SERVER_TEST_HPP
 
 #include <ModbusServer.hpp>
-
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <initializer_list>
+#include <optional>
 #include <span>
 #include <tuple>
 #include <type_traits>
@@ -142,13 +143,31 @@ struct K_Edge : ModbusReg<uint16_t, ModbusAccess::HoldingRW, 0xFFFF> {};
 static_assert(K_Edge::address == 0xFFFF);
 static_assert(detail::allAddressesUnique<std::tuple<K_Edge>>());
 
-struct MapCt { using Keys = std::tuple<K_H, K_U32, K_C, K_D>; };
+// Large byte-array key — must be readable in chunks (partial reads allowed).
+struct K_Blob
+    : ModbusReg<std::array<uint8_t, 128>, ModbusAccess::HoldingRO, 0x0100> {};
+static_assert(K_Blob::Type::regCount == 64);
+static_assert(CModbusKey<K_Blob>);
+static_assert(detail::allAddressesUnique<std::tuple<K_Blob>>());
+
+// Writable keys must fit one FC16: 123 registers = 246 bytes is the max.
+struct K_W123
+    : ModbusReg<std::array<uint8_t, 246>, ModbusAccess::HoldingRW, 0x0200> {};
+static_assert(K_W123::Type::regCount == 123);
+static_assert(detail::isWritable(K_W123::access));
+static_assert(CModbusKey<K_W123>);
+
+struct MapCt {
+  using Keys = std::tuple<K_H, K_U32, K_C, K_D>;
+};
 static_assert(CModbusRegInfo<MapCt>);
 
 // ---- Concept negatives ----------------------------------------------------
 static_assert(!CModbusKey<int>);
 static_assert(!CModbusRegInfo<int>);
-struct BadRegInfo { using Keys = int; };
+struct BadRegInfo {
+  using Keys = int;
+};
 static_assert(!CModbusRegInfo<BadRegInfo>);
 
 // ---- CRC-16 known vectors ------------------------------------------------
@@ -159,17 +178,17 @@ struct DummyTime {
   Us<uint32_t> diff(Us<uint32_t>) { return Us<uint32_t>{0}; }
 };
 struct DummyHandler {};
-using CtServer = ModbusServer<DummyTime, detail::NoOpCb, detail::NoOpCb,
-                              DummyHandler>;
+using CtServer =
+    ModbusServer<DummyTime, detail::NoOpCb, detail::NoOpCb, DummyHandler>;
 
 constexpr std::array<uint8_t, 6> kCrcVec1{0x01, 0x03, 0x00, 0x00, 0x00, 0x01};
 constexpr std::array<uint8_t, 6> kCrcVec2{0x01, 0x03, 0x00, 0x00, 0x00, 0x02};
 // Wire order is low byte first: 0x0A84 -> bytes 84 0A; 0x0BC4 -> bytes C4 0B.
-static_assert(CtServer::crc16(
-                  std::span<const uint8_t>(kCrcVec1.data(), kCrcVec1.size())) ==
+static_assert(CtServer::crc16(std::span<const uint8_t>(kCrcVec1.data(),
+                                                       kCrcVec1.size())) ==
               0x0A84);
-static_assert(CtServer::crc16(
-                  std::span<const uint8_t>(kCrcVec2.data(), kCrcVec2.size())) ==
+static_assert(CtServer::crc16(std::span<const uint8_t>(kCrcVec2.data(),
+                                                       kCrcVec2.size())) ==
               0x0BC4);
 
 // ===========================================================================
@@ -221,11 +240,108 @@ struct TestHandler : ModbusHandler<TestMap, TestHandler> {
   TestState& st_;
 };
 
+// Large byte-array key: readable in chunks (Modbus limits ~125 regs/request).
+struct BigMap {
+  struct Blob
+      : ModbusReg<std::array<uint8_t, 128>, ModbusAccess::HoldingRO, 0x0100> {};
+  using Keys = std::tuple<Blob>;
+};
+
+struct BigHandler : ModbusHandler<BigMap, BigHandler> {
+  using Base = ModbusHandler<BigMap, BigHandler>;
+  BigHandler(uint8_t addr, const std::array<uint8_t, 128>& data)
+      : Base(addr), data_(data) {}
+
+  // Span-fill onRead for a large key — fills only the requested slice.
+  void onRead(ModbusKey<BigMap::Blob>, uint16_t start_reg,
+              std::span<uint8_t> out) {
+    const std::size_t off =
+        static_cast<std::size_t>(start_reg - BigMap::Blob::address) * 2U;
+    std::memcpy(out.data(), data_.data() + off, out.size());
+  }
+
+  const std::array<uint8_t, 128>& data_;
+};
+
+// Coil-focused map: RO and RW coils at distinct addresses + a gap at @9.
+struct CoilMap {
+  struct C0 : ModbusCoil<ModbusAccess::CoilRW, 0x0000> {};
+  struct C1 : ModbusCoil<ModbusAccess::CoilRO, 0x0001> {};
+  struct C2 : ModbusCoil<ModbusAccess::CoilRW, 0x0002> {};
+  struct C9 : ModbusCoil<ModbusAccess::CoilRO, 0x0009> {};
+  using Keys = std::tuple<C0, C1, C2, C9>;
+};
+
+struct CoilState {
+  bool c0 = false;
+  bool c1 = false;
+  bool c2 = false;
+  bool c9 = false;
+};
+
+struct CoilHandler : ModbusHandler<CoilMap, CoilHandler> {
+  using Base = ModbusHandler<CoilMap, CoilHandler>;
+  CoilHandler(uint8_t addr, CoilState& s) : Base(addr), s_(s) {}
+
+  bool onRead(ModbusKey<CoilMap::C0>) const { return s_.c0; }
+  bool onRead(ModbusKey<CoilMap::C1>) const { return s_.c1; }
+  bool onRead(ModbusKey<CoilMap::C2>) const { return s_.c2; }
+  bool onRead(ModbusKey<CoilMap::C9>) const { return s_.c9; }
+  void onWrite(ModbusKey<CoilMap::C0>, bool v) { s_.c0 = v; }
+  void onWrite(ModbusKey<CoilMap::C2>, bool v) { s_.c2 = v; }
+
+  CoilState& s_;
+};
+
+// Validation-returning onWrite: value 0xFFFF is rejected (SlaveDeviceFailure).
+struct ValMap {
+  struct V : ModbusReg<uint16_t, ModbusAccess::HoldingRW, 0x0000> {};
+  struct V2 : ModbusReg<uint16_t, ModbusAccess::HoldingRW, 0x0001> {};
+  using Keys = std::tuple<V, V2>;
+};
+
+struct ValState {
+  uint16_t v = 0;
+  uint16_t v2 = 0;
+};
+
+struct ValHandler : ModbusHandler<ValMap, ValHandler> {
+  using Base = ModbusHandler<ValMap, ValHandler>;
+  ValHandler(uint8_t addr, ValState& s) : Base(addr), s_(s) {}
+
+  uint16_t onRead(ModbusKey<ValMap::V>) const { return s_.v; }
+  uint16_t onRead(ModbusKey<ValMap::V2>) const { return s_.v2; }
+  std::optional<ModbusRtuError> onWrite(ModbusKey<ValMap::V>, uint16_t v) {
+    if (v == 0xFFFF) return ModbusRtuError::SlaveDeviceFailure;
+    s_.v = v;
+    return std::nullopt;
+  }
+  void onWrite(ModbusKey<ValMap::V2>, uint16_t v) { s_.v2 = v; }
+
+  ValState& s_;
+};
+
+// Wide value (double = 4 registers) — exercises the 8-byte copy path.
+struct WideMap {
+  struct D : ModbusReg<double, ModbusAccess::HoldingRW, 0x0000> {};
+  using Keys = std::tuple<D>;
+};
+
+struct WideHandler : ModbusHandler<WideMap, WideHandler> {
+  using Base = ModbusHandler<WideMap, WideHandler>;
+  WideHandler(uint8_t addr, double& d) : Base(addr), d_(d) {}
+
+  double onRead(ModbusKey<WideMap::D>) const { return d_; }
+  void onWrite(ModbusKey<WideMap::D>, double v) { d_ = v; }
+
+  double& d_;
+};
+
 namespace detail_test {
 inline uint16_t be16(const uint8_t* p) {
   return static_cast<uint16_t>((p[0] << 8) | p[1]);
 }
-// Low word at base address, then high word (младшее слово по базовому адресу).
+// u32 wire order: low word at base address, then high word.
 inline uint32_t val32(const uint8_t* p) {
   return (static_cast<uint32_t>(be16(p + 2)) << 16) | be16(p);
 }
@@ -235,17 +351,26 @@ inline void put32(uint8_t* p, uint32_t v) {
   p[2] = static_cast<uint8_t>(v >> 24);
   p[3] = static_cast<uint8_t>(v >> 16);
 }
+// 64-bit: low 32 bits on the first two registers (low word at base address).
+inline uint64_t val64(const uint8_t* p) {
+  return static_cast<uint64_t>(val32(p)) |
+         (static_cast<uint64_t>(val32(p + 4)) << 32);
+}
+inline void put64(uint8_t* p, uint64_t v) {
+  put32(p, static_cast<uint32_t>(v));
+  put32(p + 4, static_cast<uint32_t>(v >> 32));
+}
 }  // namespace detail_test
 
 inline bool modbusServerDispatchTest() {
   using namespace detail_test;
   int fails = 0;
-#define T_CHECK(cond)                                                \
-  do {                                                               \
-    if (!(cond)) {                                                   \
-      ++fails;                                                       \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);    \
-    }                                                                \
+#define T_CHECK(cond)                                             \
+  do {                                                            \
+    if (!(cond)) {                                                \
+      ++fails;                                                    \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+    }                                                             \
   } while (0)
 
   TestState st;
@@ -285,11 +410,15 @@ inline bool modbusServerDispatchTest() {
     auto r = h.dispatch(0x03, req, resp);
     T_CHECK(r.has_value() && resp[0] == 18 && be16(&resp[17]) == 0);
   }
-  {  // 5. partial (cut) u32 read -> IllegalDataValue
+  {  // 5. partial (low word) u32 read — allowed now
+    uint8_t req[] = {0, 2, 0, 1};
+    auto r = h.dispatch(0x03, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 2 && be16(&resp[1]) == 0x3344);
+  }
+  {  // 5b. partial (high word) u32 read — allowed now
     uint8_t req[] = {0, 3, 0, 1};
     auto r = h.dispatch(0x03, req, resp);
-    T_CHECK(!r.has_value() &&
-            r.error() == ModbusRtuError::IllegalDataValue);
+    T_CHECK(r.has_value() && resp[0] == 2 && be16(&resp[1]) == 0x1122);
   }
   {  // 6. FC06 single write Ctrl
     uint8_t req[] = {0, 1, 0x12, 0x34};
@@ -299,8 +428,7 @@ inline bool modbusServerDispatchTest() {
   {  // 7. FC06 to a u32 key -> IllegalDataValue
     uint8_t req[] = {0, 2, 0x12, 0x34};
     auto r = h.dispatch(0x06, req, resp);
-    T_CHECK(!r.has_value() &&
-            r.error() == ModbusRtuError::IllegalDataValue);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
   }
   {  // 8. FC06 to RO key -> IllegalFunction
     uint8_t req[] = {0, 0, 0x12, 0x34};
@@ -330,15 +458,13 @@ inline bool modbusServerDispatchTest() {
     const uint16_t before = st.ctrl;
     uint8_t req[] = {0, 1, 0, 2, 4, 1, 2, 3, 4, 5, 6};
     auto r = h.dispatch(0x10, req, resp);
-    T_CHECK(!r.has_value() &&
-            r.error() == ModbusRtuError::IllegalDataValue);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
     T_CHECK(st.ctrl == before);
   }
   {  // 13. FC16 with gap -> IllegalDataAddress, nothing applied
     uint8_t req[] = {0, 8, 0, 2, 4, 0, 1, 0, 0};
     auto r = h.dispatch(0x10, req, resp);
-    T_CHECK(!r.has_value() &&
-            r.error() == ModbusRtuError::IllegalDataAddress);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
     T_CHECK(st.mode == 3);
   }
   {  // 14. FC01 read coils
@@ -355,6 +481,269 @@ inline bool modbusServerDispatchTest() {
     uint8_t req[] = {0, 0, 0, 1};
     auto r = h.dispatch(0x02, req, resp);
     T_CHECK(r.has_value() && resp[0] == 1 && (resp[1] & 0x01) == 0x01);
+  }
+  {  // 17. big byte-array key — chunked reads (2×32 regs + middle slice)
+    std::array<uint8_t, 128> data{};
+    for (std::size_t i = 0; i < data.size(); ++i)
+      data[i] = static_cast<uint8_t>(i);
+    BigHandler bh{0x0A, data};
+
+    uint8_t req1[] = {0x01, 0x00, 0x00, 0x20};  // regs 0x0100..0x011F
+    auto r1 = bh.dispatch(0x03, req1, resp);
+    T_CHECK(r1.has_value() && resp[0] == 64);
+    for (std::size_t j = 0; j < 32; ++j) {
+      T_CHECK(resp[1 + 2 * j] == static_cast<uint8_t>(2 * j + 1));
+      T_CHECK(resp[1 + 2 * j + 1] == static_cast<uint8_t>(2 * j));
+    }
+
+    uint8_t req2[] = {0x01, 0x20, 0x00, 0x20};  // regs 0x0120..0x013F
+    auto r2 = bh.dispatch(0x03, req2, resp);
+    T_CHECK(r2.has_value() && resp[0] == 64);
+    for (std::size_t j = 0; j < 32; ++j) {
+      const std::size_t b = 64 + 2 * j;
+      T_CHECK(resp[1 + 2 * j] == static_cast<uint8_t>(b + 1));
+      T_CHECK(resp[1 + 2 * j + 1] == static_cast<uint8_t>(b));
+    }
+
+    uint8_t req3[] = {0x01, 0x08, 0x00,
+                      0x02};  // middle 2 regs (0x0108..0x0109)
+    auto r3 = bh.dispatch(0x03, req3, resp);
+    T_CHECK(r3.has_value() && resp[0] == 4);
+    T_CHECK(resp[1] == 0x11 && resp[2] == 0x10 && resp[3] == 0x13 &&
+            resp[4] == 0x12);
+  }
+
+  // ===== Holding-register limits & write semantics =======================
+  {
+    // FC04 (read input registers) — same path as FC03
+    uint8_t req[] = {0, 0, 0, 1};
+    auto r = h.dispatch(0x04, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 2 && be16(&resp[1]) == 0x0001);
+  }
+  {
+    // FC03 max quantity (125 regs) is accepted; gap words read as 0
+    uint8_t req[] = {0, 0, 0, 125};
+    auto r = h.dispatch(0x03, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 250);
+  }
+  {
+    // FC16 write WO key (Cmd @7) as a whole
+    uint8_t req[] = {0, 7, 0, 1, 2, 0x00, 0x42};
+    auto r = h.dispatch(0x10, req, resp);
+    T_CHECK(r.has_value() && st.cmd == 0x0042);
+  }
+  {
+    // FC16 with RO key (Dev_Id @0) in range -> IllegalFunction, atomic
+    const uint16_t before = st.ctrl;
+    uint8_t req[] = {0, 0, 0, 2, 4, 0xAA, 0xBB, 0, 0};
+    auto r = h.dispatch(0x10, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalFunction);
+    T_CHECK(st.ctrl == before && st.dev_id == 0x0001);
+  }
+  {
+    // FC16 num=124 (>123) -> IllegalDataValue
+    uint8_t req[] = {0, 1, 0, 124, 0};
+    auto r = h.dispatch(0x10, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC16 num=0 -> IllegalDataValue
+    uint8_t req[] = {0, 1, 0, 0, 0};
+    auto r = h.dispatch(0x10, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC16 start overflow -> IllegalDataAddress
+    uint8_t req[] = {0xFF, 0xFF, 0, 1, 2, 0, 0};
+    auto r = h.dispatch(0x10, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+  {
+    // FC16 truncated payload (byte count correct, data short)
+    uint8_t req[] = {0, 1, 0, 2, 4, 0xAA, 0xBB, 0xCC};
+    auto r = h.dispatch(0x10, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+
+  // ===== Coil edge cases (CoilMap: C0 RW@0, C1 RO@1, C2 RW@2, C9 RO@9) ===
+  CoilState cst;
+  CoilHandler ch{0x0A, cst};
+  {
+    // FC01: read coils 0..3 — bits c0,c1,c2 + gap@3 = 0
+    cst.c0 = cst.c1 = cst.c2 = cst.c9 = true;
+    uint8_t req[] = {0, 0, 0, 4};
+    auto r = ch.dispatch(0x01, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 1 && resp[1] == 0b0000'0111);
+  }
+  {
+    // FC01: read coils 0..9 — c9 lands in the second byte
+    uint8_t req[] = {0, 0, 0, 10};
+    auto r = ch.dispatch(0x01, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 2);
+    T_CHECK(resp[1] == 0b0000'0111 && resp[2] == 0b0000'0010);
+  }
+  {
+    // FC01: no coil in range -> IllegalDataAddress
+    uint8_t req[] = {0x00, 0x20, 0, 1};
+    auto r = ch.dispatch(0x01, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+  {
+    // FC01: num=0 -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0, 0};
+    auto r = ch.dispatch(0x01, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC01: num=2001 (>0x07D0) -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0x07, 0xD1};
+    auto r = ch.dispatch(0x01, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC01: start overflow -> IllegalDataAddress
+    uint8_t req[] = {0xFF, 0xFF, 0, 2};
+    auto r = ch.dispatch(0x01, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+  {
+    // FC05: write C2 (RW)
+    cst.c2 = false;
+    uint8_t req[] = {0, 2, 0xFF, 0x00};
+    auto r = ch.dispatch(0x05, req, resp);
+    T_CHECK(r.has_value() && cst.c2 == true);
+  }
+  {
+    // FC05: write C1 (RO) -> IllegalFunction
+    uint8_t req[] = {0, 1, 0xFF, 0x00};
+    auto r = ch.dispatch(0x05, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalFunction);
+  }
+  {
+    // FC05: unmapped coil -> IllegalDataAddress
+    uint8_t req[] = {0x00, 0x20, 0xFF, 0x00};
+    auto r = ch.dispatch(0x05, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+  {
+    // FC05: invalid value (0x0001, not 0x0000/0xFF00) -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0x00, 0x01};
+    auto r = ch.dispatch(0x05, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC0F: write coils 0..2 — RO@1 skipped, RW@0/@2 applied
+    cst.c0 = cst.c1 = cst.c2 = false;
+    uint8_t req[] = {0, 0, 0, 3, 1, 0b0000'0111};
+    auto r = ch.dispatch(0x0F, req, resp);
+    T_CHECK(r.has_value());
+    T_CHECK(cst.c0 == true && cst.c2 == true && cst.c1 == false);
+  }
+  {
+    // FC0F: byte count mismatch -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0, 3, 2, 0b0000'0111, 0};
+    auto r = ch.dispatch(0x0F, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC0F: num=0 -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0, 0, 0};
+    auto r = ch.dispatch(0x0F, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC0F: num=1969 (>0x07B0) -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0x07, 0xB1, 0};
+    auto r = ch.dispatch(0x0F, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC0F: start overflow -> IllegalDataAddress
+    uint8_t req[] = {0xFF, 0xFF, 0, 1, 1, 1};
+    auto r = ch.dispatch(0x0F, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+
+  // ===== Discrete input limits ============================================
+  {
+    // FC02: no discrete in range -> IllegalDataAddress
+    uint8_t req[] = {0x00, 0x20, 0, 1};
+    auto r = h.dispatch(0x02, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+  {
+    // FC02: num=0 -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0, 0};
+    auto r = h.dispatch(0x02, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC02: num=2001 (>0x07D0) -> IllegalDataValue
+    uint8_t req[] = {0, 0, 0x07, 0xD1};
+    auto r = h.dispatch(0x02, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataValue);
+  }
+  {
+    // FC02: start overflow -> IllegalDataAddress
+    uint8_t req[] = {0xFF, 0xFF, 0, 2};
+    auto r = h.dispatch(0x02, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::IllegalDataAddress);
+  }
+
+  // ===== Validation-returning onWrite (FC06 / FC16, atomic) ==============
+  ValState vst;
+  ValHandler vh{0x0A, vst};
+  {
+    uint8_t req[] = {0, 0, 0x00, 0x42};
+    auto r = vh.dispatch(0x06, req, resp);
+    T_CHECK(r.has_value() && vst.v == 0x0042);
+  }
+  {
+    const uint16_t before = vst.v;
+    uint8_t req[] = {0, 0, 0xFF, 0xFF};
+    auto r = vh.dispatch(0x06, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::SlaveDeviceFailure);
+    T_CHECK(vst.v == before);
+  }
+  {
+    // FC16: both keys valid -> both applied
+    uint8_t req[] = {0, 0, 0, 2, 4, 0x11, 0x11, 0x22, 0x22};
+    auto r = vh.dispatch(0x10, req, resp);
+    T_CHECK(r.has_value() && vst.v == 0x1111 && vst.v2 == 0x2222);
+  }
+  {
+    // FC16: first key rejected -> second NOT applied (atomic)
+    const uint16_t bv = vst.v, bv2 = vst.v2;
+    uint8_t req[] = {0, 0, 0, 2, 4, 0xFF, 0xFF, 0x33, 0x33};
+    auto r = vh.dispatch(0x10, req, resp);
+    T_CHECK(!r.has_value() && r.error() == ModbusRtuError::SlaveDeviceFailure);
+    T_CHECK(vst.v == bv && vst.v2 == bv2);
+  }
+
+  // ===== Wide value (double, 4 regs): whole/partial read + whole write ===
+  double wd = 0.0;
+  WideHandler wh{0x0A, wd};
+  const uint64_t wbits = 0x1122334455667788ull;
+  std::memcpy(&wd, &wbits, 8);
+  {
+    uint8_t req[] = {0, 0, 0, 4};
+    auto r = wh.dispatch(0x03, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 8 && val64(&resp[1]) == wbits);
+  }
+  {
+    uint8_t req[] = {0, 0, 0, 2};  // low 2 regs only
+    auto r = wh.dispatch(0x03, req, resp);
+    T_CHECK(r.has_value() && resp[0] == 4 && val32(&resp[1]) == 0x55667788u);
+  }
+  {
+    const uint64_t nb = 0x8877665544332211ull;
+    uint8_t req[] = {0, 0, 0, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0};
+    put64(&req[5], nb);
+    auto r = wh.dispatch(0x10, req, resp);
+    T_CHECK(r.has_value());
+    uint64_t got = 0;
+    std::memcpy(&got, &wd, 8);
+    T_CHECK(got == nb);
   }
 
 #undef T_CHECK
@@ -408,8 +797,7 @@ inline std::span<uint8_t> makeFrame(std::array<uint8_t, 256>& buf,
                                     std::initializer_list<uint8_t> hdr) {
   std::size_t n = 0;
   for (uint8_t b : hdr) buf[n++] = b;
-  const uint16_t crc =
-      CtServer::crc16(std::span<const uint8_t>(buf.data(), n));
+  const uint16_t crc = CtServer::crc16(std::span<const uint8_t>(buf.data(), n));
   buf[n] = static_cast<uint8_t>(crc);
   buf[n + 1] = static_cast<uint8_t>(crc >> 8);
   return std::span<uint8_t>(buf.data(), n + 2);
@@ -423,13 +811,18 @@ bool runPacket(std::span<uint8_t> frame, std::span<uint8_t> out,
   std::array<uint8_t, 256> rx{}, tx{};
   FakeTime ft;
   FakeDl dl{frame};
-  Server server{dl, ft, {Us<uint32_t>{0}}, rx, tx,
-                detail::NoOpCb{}, detail::NoOpCb{}, handlers...};
+  Server server{dl,
+                ft,
+                {Us<uint32_t>{0}},
+                rx,
+                tx,
+                detail::NoOpCb{},
+                detail::NoOpCb{},
+                handlers...};
 
   bool ok = false;
   auto task = runOnce(server, ok);
-  for (int i = 0; i < 1000 && !ok; ++i)
-    CoroScheduler::getInstance().handle();
+  for (int i = 0; i < 1000 && !ok; ++i) CoroScheduler::getInstance().handle();
 
   out_size = dl.tx_out.size();
   const std::size_t n = out_size < out.size() ? out_size : out.size();
@@ -439,17 +832,18 @@ bool runPacket(std::span<uint8_t> frame, std::span<uint8_t> out,
 
 inline bool modbusServerTransportTest() {
   int fails = 0;
-#define T_CHECK(cond)                                                \
-  do {                                                               \
-    if (!(cond)) {                                                   \
-      ++fails;                                                       \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);    \
-    }                                                                \
+#define T_CHECK(cond)                                             \
+  do {                                                            \
+    if (!(cond)) {                                                \
+      ++fails;                                                    \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+    }                                                             \
   } while (0)
 
   TestState stA, stB;
   stA.dev_id = 0x1234;
   stA.ctrl = 0xABCD;
+  stA.sp1 = 0x11223344;
   stA.coil = true;
   stA.disc = true;
   stB.dev_id = 0x5678;
@@ -520,10 +914,11 @@ inline bool modbusServerTransportTest() {
                    osz, hA);
     T_CHECK(ok && osz == 5 && obuf[1] == 0x83 && obuf[2] == 0x02);
   }
-  {  // 11. FC03 partial (cut u32) -> IllegalDataValue
+  {  // 11. FC03 partial (high word of Sp1) — allowed now
     ok = runPacket(makeFrame(fbuf, {0x0A, 0x03, 0x00, 0x03, 0x00, 0x01}), obuf,
                    osz, hA);
-    T_CHECK(ok && osz == 5 && obuf[1] == 0x83 && obuf[2] == 0x03);
+    T_CHECK(ok && osz == 7 && obuf[1] == 0x03 && obuf[2] == 2);
+    T_CHECK(obuf[3] == 0x11 && obuf[4] == 0x22);
   }
   {  // 12. FC06 to u32 key -> IllegalDataValue
     ok = runPacket(makeFrame(fbuf, {0x0A, 0x06, 0x00, 0x02, 0x12, 0x34}), obuf,
@@ -541,24 +936,21 @@ inline bool modbusServerTransportTest() {
     T_CHECK(ok && osz == 5 && obuf[1] == 0x86 && obuf[2] == 0x02);
   }
   {  // 15. valid FC16 block write Ctrl(1)+Sp1(2..3)
-    ok = runPacket(
-        makeFrame(fbuf, {0x0A, 0x10, 0x00, 0x01, 0x00, 0x03, 0x06,
-                         0xAA, 0xBB, 0x44, 0x33, 0x22, 0x11}),
-        obuf, osz, hA);
+    ok = runPacket(makeFrame(fbuf, {0x0A, 0x10, 0x00, 0x01, 0x00, 0x03, 0x06,
+                                    0xAA, 0xBB, 0x44, 0x33, 0x22, 0x11}),
+                   obuf, osz, hA);
     T_CHECK(ok && osz == 8 && stA.ctrl == 0xAABB && stA.sp1 == 0x22114433u);
   }
   {  // 16. FC16 wrong byte count -> IllegalDataValue
-    ok = runPacket(
-        makeFrame(fbuf, {0x0A, 0x10, 0x00, 0x01, 0x00, 0x02, 0x05,
-                         0xAA, 0xBB, 0xCC, 0xDD}),
-        obuf, osz, hA);
+    ok = runPacket(makeFrame(fbuf, {0x0A, 0x10, 0x00, 0x01, 0x00, 0x02, 0x05,
+                                    0xAA, 0xBB, 0xCC, 0xDD}),
+                   obuf, osz, hA);
     T_CHECK(ok && osz == 5 && obuf[1] == 0x90 && obuf[2] == 0x03);
   }
   {  // 17. FC16 with gap (start=8) -> IllegalDataAddress
-    ok = runPacket(
-        makeFrame(fbuf, {0x0A, 0x10, 0x00, 0x08, 0x00, 0x02, 0x04,
-                         0x00, 0x01, 0x00, 0x02}),
-        obuf, osz, hA);
+    ok = runPacket(makeFrame(fbuf, {0x0A, 0x10, 0x00, 0x08, 0x00, 0x02, 0x04,
+                                    0x00, 0x01, 0x00, 0x02}),
+                   obuf, osz, hA);
     T_CHECK(ok && osz == 5 && obuf[1] == 0x90 && obuf[2] == 0x02);
   }
   {  // 18. truncated packet (<4 bytes) -> silence
@@ -579,6 +971,30 @@ inline bool modbusServerTransportTest() {
                    osz, hA, hB);
     T_CHECK(ok && osz == 7 && obuf[0] == 0x0B);
     T_CHECK(obuf[3] == 0x56 && obuf[4] == 0x78);  // Dev_Id of stB
+  }
+  {  // 21. FC04 read input registers (Dev_Id)
+    ok = runPacket(makeFrame(fbuf, {0x0A, 0x04, 0x00, 0x00, 0x00, 0x01}), obuf,
+                   osz, hA);
+    T_CHECK(ok && osz == 7 && obuf[1] == 0x04 && obuf[2] == 2);
+    T_CHECK(obuf[3] == 0x12 && obuf[4] == 0x34);
+  }
+  {  // 22. broadcast FC16 applied to all handlers, no response
+    stA.ctrl = 0;
+    stB.ctrl = 0;
+    ok = runPacket(
+        makeFrame(fbuf, {0x00, 0x10, 0x00, 0x01, 0x00, 0x01, 0x02, 0x00, 0x42}),
+        obuf, osz, hA, hB);
+    T_CHECK(ok && osz == 0);
+    T_CHECK(stA.ctrl == 0x0042 && stB.ctrl == 0x0042);
+  }
+  {  // 23. broadcast FC03 read -> silence (no response)
+    ok = runPacket(makeFrame(fbuf, {0x00, 0x03, 0x00, 0x00, 0x00, 0x01}), obuf,
+                   osz, hA, hB);
+    T_CHECK(ok && osz == 0);
+  }
+  {  // 24. 4-byte frame (valid CRC, empty payload) -> IllegalDataValue
+    ok = runPacket(makeFrame(fbuf, {0x0A, 0x03}), obuf, osz, hA);
+    T_CHECK(ok && osz == 5 && obuf[1] == 0x83 && obuf[2] == 0x03);
   }
 
 #undef T_CHECK

@@ -265,6 +265,12 @@ struct ModbusReg {
 
   static_assert(static_cast<uint32_t>(Addr) + Type::regCount <= 0x1'0000,
                 "ModbusReg key overflows the 64K register space");
+  // Writes are whole-key only; a writable key must fit in one FC16 frame
+  // (Modbus FC16 limit is 123 registers). Read-only keys may be any size and
+  // are read in chunks.
+  static_assert(
+      !detail::isWritable(Access) || Type::regCount <= 0x7B,
+      "Writable ModbusReg key must fit in one FC16 (<= 123 registers)");
 };
 
 // ============================================================================
@@ -456,15 +462,8 @@ class ModbusHandler {
     tx_buf[0] = static_cast<uint8_t>(bc);
     auto regs = tx_buf.subspan(1, bc);
 
-    // Блочное чтение: диапазон может покрывать несколько подряд идущих
-    // ключей. «Дыры» (адреса без ключа) и WO-ключи читаются как 0.
-    // Ключ, покрытый диапазоном лишь частично (разрез u32/float), — ошибка.
-    std::optional<Error> err;
-    std::apply(
-        [&](auto... keys) { (checkReadHrKey(start, num, keys, err), ...); },
-        typename RegInfo::Keys{});
-    if (err) return err;
-
+    // Whole range is filled: any key may be sliced (partial reads, Modbus
+    // caps a request at ~125 regs); gaps and WO keys read as zero.
     std::memset(regs.data(), 0, regs.size());
     std::apply(
         [&](auto... keys) { (fillReadHrKey(start, num, regs, keys), ...); },
@@ -473,23 +472,9 @@ class ModbusHandler {
     return std::nullopt;
   }
 
-  // Если ключ пересекает диапазон, но не входит в него целиком — ошибка.
-  template <typename Key>
-  void checkReadHrKey(uint16_t start, uint16_t num, Key /*tag*/,
-                      std::optional<Error>& err) {
-    using K = std::remove_cvref_t<Key>;
-    if constexpr (K::isHolding) {
-      if (err) return;
-      const uint32_t k_start = K::address;
-      const uint32_t k_end = k_start + K::Type::regCount;
-      const uint32_t r_end = static_cast<uint32_t>(start) + num;
-      if (k_end <= start || k_start >= r_end) return;  // нет пересечения
-      if (k_start < start || k_end > r_end)
-        err = Error::IllegalDataValue;  // ключ разрезан диапазоном
-    }
-  }
-
-  // Заполняет ответ значением целого ключа (для читаемых), остальное — 0.
+  // Fill the key's overlap with the requested range. onRead may either return
+  // the value or fill a span: `void onRead(ModbusKey<K>, uint16_t start_reg,
+  // std::span<uint8_t> out)` for large keys (no copy).
   template <typename Key>
   void fillReadHrKey(uint16_t start, uint16_t num, std::span<uint8_t> regs,
                      Key /*tag*/) {
@@ -497,12 +482,27 @@ class ModbusHandler {
     if constexpr (K::isHolding && detail::isReadable(K::access)) {
       const uint32_t k_start = K::address;
       const uint32_t k_end = k_start + K::Type::regCount;
-      const uint32_t r_end = static_cast<uint32_t>(start) + num;
-      if (k_start < start || k_end > r_end) return;  // только целый ключ
-      auto v = self().onRead(ModbusKey<K>{});
-      checkReadReturnType<K>(v);
-      const uint32_t off = static_cast<uint32_t>(k_start - start) * 2U;
-      std::memcpy(regs.data() + off, &v, sizeof(v));
+      const uint32_t r_start = start;
+      const uint32_t r_end = r_start + num;
+      if (k_end <= r_start || k_start >= r_end) return;  // no overlap
+
+      const uint32_t ov_start = k_start > r_start ? k_start : r_start;
+      const uint32_t ov_end = k_end < r_end ? k_end : r_end;
+      const uint32_t dst_off = (ov_start - r_start) * 2U;
+      auto out = regs.subspan(dst_off, (ov_end - ov_start) * 2U);
+
+      if constexpr (requires(std::span<uint8_t> o) {
+                      std::declval<Derived&>().onRead(
+                          ModbusKey<K>{}, static_cast<uint16_t>(0), o);
+                    }) {
+        self().onRead(ModbusKey<K>{}, start, out);
+      } else {
+        auto v = self().onRead(ModbusKey<K>{});
+        checkReadReturnType<K>(v);
+        const uint32_t src_off = (ov_start - k_start) * 2U;
+        std::memcpy(out.data(), reinterpret_cast<const uint8_t*>(&v) + src_off,
+                    out.size());
+      }
     }
   }
 
@@ -561,11 +561,9 @@ class ModbusHandler {
       return Error::IllegalDataValue;
 
     auto regs = rx_buf.subspan(5, num * 2U);
-    swapBytesInSpan(regs);
 
-    // Блочная запись: диапазон должен целиком покрываться ЦЕЛЫМИ RW-ключами
-    // без «дыр» и без разрезанных u32/float ключей. Сначала валидация (без
-    // побочных эффектов), затем применение — запись «атомарная».
+    // The range must be exactly covered by whole writable keys (no gaps, no
+    // cut u32/float keys). Validate first, then apply — the write is atomic.
     bool has_partial = false;
     bool has_read_only = false;
     uint32_t covered_words = 0;
@@ -578,7 +576,7 @@ class ModbusHandler {
         typename RegInfo::Keys{});
     if (has_partial) return Error::IllegalDataValue;
     if (has_read_only) return Error::IllegalFunction;
-    if (covered_words != num) return Error::IllegalDataAddress;  // «дыра»
+    if (covered_words != num) return Error::IllegalDataAddress;  // gap
 
     std::optional<Error> err;
     std::apply(
@@ -599,9 +597,9 @@ class ModbusHandler {
       const uint32_t k_start = K::address;
       const uint32_t k_end = k_start + K::Type::regCount;
       const uint32_t r_end = static_cast<uint32_t>(start) + num;
-      if (k_end <= start || k_start >= r_end) return;  // нет пересечения
+      if (k_end <= start || k_start >= r_end) return;  // no overlap
       if (k_start < start || k_end > r_end) {
-        has_partial = true;  // ключ разрезан диапазоном
+        has_partial = true;  // key cut by the range
         return;
       }
       if constexpr (detail::isWritable(K::access))
@@ -620,14 +618,18 @@ class ModbusHandler {
       const uint32_t k_start = K::address;
       const uint32_t k_end = k_start + K::Type::regCount;
       const uint32_t r_end = static_cast<uint32_t>(start) + num;
-      if (k_start < start || k_end > r_end) return;  // только целый ключ
+      if (k_start < start || k_end > r_end) return;  // whole keys only
       typename K::ValueType v{};
       const uint32_t off = static_cast<uint32_t>(k_start - start) * 2U;
       if (off + sizeof(v) > regs.size()) {
         err = Error::IllegalDataValue;
         return;
       }
-      std::memcpy(&v, regs.data() + off, sizeof(v));
+      // Wire order: low word at base address, each word big-endian. Convert
+      // per 16-bit word to host byte order WITHOUT mutating the shared input
+      // buffer (rx_buf is reused across handlers on broadcast writes).
+      auto* dst = reinterpret_cast<uint8_t*>(&v);
+      for (std::size_t i = 0; i < sizeof(v); ++i) dst[i] = regs[off + (i ^ 1U)];
       err = callOnWrite<K>(ModbusKey<K>{}, v);
     }
   }

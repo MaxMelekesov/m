@@ -17,9 +17,9 @@ struct CoroTraits<> {
 };
 }  // namespace m
 
-#include "ModbusServerTest.hpp"
-
 #include <cstdio>
+
+#include "ModbusServerTest.hpp"
 
 int main() {
   const bool ok = m::tsts::modbusServerRunAllTests();

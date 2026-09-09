@@ -12,8 +12,8 @@
 #define PROTO_THREAD_TEST_HPP
 
 #include <Ms.hpp>
-#include <PtDelay.hpp>
 #include <ProtoThread.hpp>
+#include <PtDelay.hpp>
 #include <array>
 
 namespace m::tsts {
@@ -582,7 +582,8 @@ inline bool protoThreadTest() {
     sched.add(task);
 
     if (!run_until_done(task)) return false;
-    // Parent: 100, await child (1,2,3), parent: 101, await child again (1,2,3), parent: 102
+    // Parent: 100, await child (1,2,3), parent: 101, await child again (1,2,3),
+    // parent: 102
     if (!log.verify({100, 1, 2, 3, 101, 1, 2, 3, 102})) return false;
   }
 

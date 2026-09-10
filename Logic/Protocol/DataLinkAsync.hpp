@@ -31,7 +31,6 @@ class DataLinkAsync : public ifc::IDataLink {
     UsT packet_rx_time_between_bytes{0};
   };
 
- public:
   DataLinkAsync(ifc::ITime<UsT>& time, ifc::IIO_Async<BpsT>& io,
                 Timings timings)
       : io_(io), rx_between_bytes_timer_{time}, tx_timeout_timer_{time} {
@@ -53,20 +52,16 @@ class DataLinkAsync : public ifc::IDataLink {
     return true;
   }
 
-  bool stopReceive() override {
-    if (!io_.abortRead()) {
-      return false;
-    }
-    return true;
-  }
+  bool stopReceive() override { return io_.abortRead(); }
 
   std::optional<std::span<uint8_t>> getPacket() override {
     auto bytes = io_.bytesReaded();
     if (bytes == rx_buf_.size()) {
-      if (io_.isReadDone())
+      if (io_.isReadDone()) {
         return rx_buf_;
-      else
+      } else {
         return std::nullopt;
+      }
     } else {
       if (bytes != 0) {
         if (bytes == bytes_start_count_) {
@@ -103,12 +98,7 @@ class DataLinkAsync : public ifc::IDataLink {
     return true;
   }
 
-  bool stopTransmit() override {
-    if (!io_.abortWrite()) {
-      return false;
-    }
-    return true;
-  }
+  bool stopTransmit() override { return io_.abortWrite(); }
 
   std::optional<bool> transmitDone() override {
     if (io_.isWriteDone()) {

@@ -27,7 +27,7 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
   std::size_t bytesWritten() override { return huart_.hdmatx->Instance->CNDTR; }
 
   bool startWrite(std::span<uint8_t const> data) override {
-    dr_en_.write(1);
+    dr_en_.write(true);
     auto res = (HAL_UART_Transmit_DMA(&huart_, (uint8_t*)data.data(),
                                       data.size()) == HAL_OK);
     if (res) {
@@ -52,9 +52,8 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
         if (HAL_UART_GetState(&huart_) == HAL_UART_STATE_READY) {
           dma_tx_started_ = false;
           return true;
-        } else {
-          return false;
         }
+        return false;
       }
       return false;
     }
@@ -66,7 +65,7 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
   }
 
   bool startRead(std::span<uint8_t> data) override {
-    dr_en_.write(0);
+    dr_en_.write(false);
     bool res = (HAL_UART_Receive_DMA(&huart_, (uint8_t*)data.data(),
                                      data.size()) == HAL_OK);
     if (res) {

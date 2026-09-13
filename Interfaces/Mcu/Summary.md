@@ -25,6 +25,13 @@ Timer or periodic interrupt interface with callback.
 
 ---
 
+### `IPeriodicIt.hpp` — `m::ifc::mcu::IPeriodicIt<UnitT>`
+Timer interrupt firing at a run-time adjustable rate: the callback/start/stop contract of `IIt` plus frequency control. Parameterised by the frequency unit, so the storage type stays in the unit and out of the signatures. `using Unit = UnitT` (e.g. `m::Hz<uint32_t>`; `Hz` itself lives in `Logic/Units`).  
+**Key methods:** `setCallback(fn)`, `setFrequency(value)→bool` (false → rate unreachable, previous kept; safe to call while running), `getFrequency()→Unit`, `start()→bool`, `running()→bool`, `stop()→bool`  
+**Concepts:** `CPeriodicItOf<T, UnitT>`, `CPeriodicIt` (also satisfies `CIt`)
+
+---
+
 ### `IAdcDmaCircularReader.hpp` — `m::ifc::mcu::IAdcDmaCircularReader<T>`
 ADC DMA circular buffer reader interface. Supports half/full conversion callbacks for double-buffering.  
 **Key methods:** `setHalfConversionCallback(cb)`, `setFullConversionCallback(cb)`, `start(data)→bool`, `running()→bool`, `stop()→bool`  

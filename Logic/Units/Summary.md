@@ -13,6 +13,7 @@ Each unit type has a corresponding C++ concept for use in template constraints.
 |---|---|---|---|
 | `Unit.hpp` | `Unit<Derived, Storage>` | — | CRTP base |
 | `Bps.hpp` | `Bps<T>` | `CBps` | Bits per second (baud rate) |
+| `Hz.hpp` | `Hz<T>` | `CHz` | Frequency in hertz |
 | `Celsius.hpp` | `Celsius<T>` | `CCelsius` | Temperature in °C |
 | `Kelvin.hpp` | `Kelvin<T>` | `CKelvin` | Temperature in K |
 | `Gram.hpp` | `Gram<T>` | `CGram` | Mass in grams |

@@ -22,6 +22,21 @@ Coroutine-based CRTP base. Async counterpart of `Ic`.
 
 ---
 
+### `AD5663.hpp` — `m::ic::Ad5663Ic<Time, Io>`
+Driver for the Analog Devices AD5663 dual 16-bit SPI DAC (register-level, inherits `Ic<>`). Write-only, no readback: "write"/"update" commands, input registers and update-all for synchronous channel updates.  
+**Key methods:** `write(Reg)→bool` (`Ad5663::WriteInputDacA/B`, `UpdateDacA/B`, `WriteInputUpdateAllDacA/B`, `WriteAndUpdateDacA/B`)  
+**Template params:** `Time` (`CTime`+`CUs`), `Io` (`CIO_Async`+`CBps`)
+
+---
+
+### `AD5663Dac.hpp` — `m::ic::Ad5663Dac<IcT>` : `IDac`
+One AD5663 output (channel A or B) as `m::ifc::IDac`, built on a chip driver passed by reference (`m::ic::Ad5663Ic<Time, Io>`), so both channels of a chip share one IC object and its SYNC pin. 16-bit code, no scaling; every `setValue()` is a blocking "write and update" SPI frame (~5 us at 5 MBit/s).  
+**Key methods:** `start()→bool` (always ready), `running()→bool`, `setValue(value)→bool`  
+**Concept:** `CAd5663Writer`  
+**Note:** `stop()` returns false — the driver has no power-down command.
+
+---
+
 ### `Ads1256.hpp` — `m::ic::Ads1256Ic<Time, Io>`
 Driver for TI ADS1256 24-bit SPI ADC.  
 Defines complete register map with bitfields (`ReadStatus`, `ReadMux`, `ReadAdcon`, `ReadDrate`, `Data`, `Selfcal`, `WriteStatus/Mux/Adcon/Drate`).  

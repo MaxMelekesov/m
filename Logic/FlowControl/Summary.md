@@ -96,6 +96,13 @@ Validates no duplicate (state,event) pairs and full enum coverage at compile tim
 
 ---
 
+### `Fsm_v9.hpp` — `m::Fsm_v9<S, E, Ctx, Items...>`
+`Fsm_v8` plus state bodies, self-contained (declares its own `m::Transition`). Items are `m::Transition` (what moves the state) and `m::StateBody` — what a state does on every `handle()` while it is active (the Moore output / UML do-activity). Bodies are given either for every state or not at all.  
+`handle()` runs at most one transition, then the body of the (new) state, so the caller never asks `state()` to decide what to do. Compile-time checks: duplicate (state,event), full enum coverage, duplicate/missing state body.  
+**Key methods:** `handle(Ctx&)→bool`, `state()→S`
+
+---
+
 ### `Fsm.hpp` — `m::Fsm` *(deprecated — use Fsm_v4)*
 First-generation FSM. States own transition tables as `span<IState*>`.
 

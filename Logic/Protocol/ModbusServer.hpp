@@ -236,6 +236,8 @@ struct NoOpCb {
   void operator()() const {}
 };
 
+static_assert(std::invocable<NoOpCb>);
+
 }  // namespace detail
 
 template <typename T>
@@ -843,8 +845,8 @@ class ModbusHandler {
 //   };
 // ============================================================================
 
-template <m::ifc::CTime TimeUsT, typename OnRx = detail::NoOpCb,
-          typename OnTx = detail::NoOpCb, typename... Handlers>
+template <m::ifc::CTime TimeUsT, std::invocable OnRx = detail::NoOpCb,
+          std::invocable OnTx = detail::NoOpCb, typename... Handlers>
   requires m::ifc::CUs<typename TimeUsT::Unit> && (sizeof...(Handlers) >= 1)
 class ModbusServer {
  public:

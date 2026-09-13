@@ -10,6 +10,13 @@ See also:
 
 ## Files
 
+### `IDac.hpp` — `m::ifc::IDac`
+Single DAC output interface — one instance per channel (a multi-channel chip is represented by several instances). The caller works in one code domain (the modulator uses 16 bits) and hands the value over as `uint32_t`, while each implementation keeps the bits its hardware holds (12-bit → `value >> 4`, 16-bit → all 16).  
+**Key methods:** `start()→bool`, `running()→bool`, `stop()→bool`, `setValue(value)→bool`  
+**Concept:** `CDac`
+
+---
+
 ### `IDataLink.hpp` — `IDataLink`, `IRingDataLink`
 Serial data link layer interfaces. `IDataLink` for flat buffers; `IRingDataLink` for ring buffers (wrap-around aware, via `RingSpan`).  
 **Key methods:** `startReceive`, `getPacket`, `startTransmit`, `transmitDone`, `stopReceive/Transmit`, `error`  

@@ -15,7 +15,7 @@ No heap, no macros, no RTTI, no exceptions. Designed for readability, maintainab
 
 | Folder | Description |
 |---|---|
-| [`IC/`](IC/Summary.md) | Drivers for specific ICs: ADC, capacitance converter, flash memory, OLED, NTC thermistor. Both synchronous and coroutine-based variants. |
+| [`IC/`](IC/Summary.md) | Drivers for specific ICs: ADC, capacitance converter, flash memory, OLED, NTC thermistor, unipolar stepper driver. Both synchronous and coroutine-based variants. |
 | [`Interfaces/`](Interfaces/Summary.md) | Pure abstract C++ interfaces for IO, memory, time, logging, temperature, etc. Decouple logic from hardware. |
 | [`Interfaces/Mcu/`](Interfaces/Mcu/Summary.md) | MCU-peripheral interfaces: GPIO pin, timer/interrupt, periodic timer interrupt with rate control, enable control, ADC DMA circular reader. |
 | [`Interfaces/StpMotor/`](Interfaces/StpMotor/Summary.md) | Stepper motor subsystem interfaces: end-stop, step counter, step driver, step generator. |

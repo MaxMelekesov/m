@@ -74,3 +74,10 @@ Generic JEDEC SPI NOR Flash driver (W25Q, AT25, etc.). Implements `IFlashMemory`
 ### `SSD1306.hpp` — `m::ic::SSD1306<IoT>`
 Driver for SSD1306 128×32/64 OLED display over I2C/SPI async IO. Coroutine-based.  
 **Key methods:** `init()→Task<bool>`, `deinit()`, `clear()`, `onOff()`, `sendCmd()`, `sendData()`, plus full configuration commands (clock, mux, offset, start line, segment remap, scan direction, column/page range, charge pump, COM pins).
+
+---
+
+### `ULN2003AD.hpp` — `m::ic::Uln2003AD`
+Unipolar stepper motor behind a ULN2003AD darlington array: four inputs (IN1..IN4) given as `IPin`, half-step sequence of 8 states per electrical cycle — the finest resolution four pins can give.  
+**Key methods:** `step(direction)`, `hold()`, `release()`, `phase()→uint8_t`  
+**Constants:** `Phases = 8`

@@ -15,7 +15,7 @@ Three concurrency models are available:
 Cooperative coroutine scheduler with a static pool allocator (no heap).  
 `Task<T>` is `co_await`-able and move-only. Scheduler is a singleton; dispatches in FIFO order.  
 Pool defaults: `slot_size=384`, `capacity=16` — override via `CoroTraits<>` specialization.  
-**Key methods (scheduler):** `handle()` (call in main loop), `enqueue(handle)`, `setCoroutineOomCallback(cb)`, `coroutineMemoryStats()`
+**Key methods (scheduler):** `handle()` (one round: every ready coroutine resumed at most once, then returns — call it from the main loop, plain code can run next to it), `enqueue(handle)`, `setCoroutineOomCallback(cb)`, `coroutineMemoryStats()`
 
 ---
 

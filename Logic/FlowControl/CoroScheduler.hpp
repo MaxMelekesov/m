@@ -35,6 +35,9 @@
  *  CPU  : O(n) per handle() call where n = number of ready coroutines.
  *         FIFO ordering; nested co_await re-enqueues the parent on
  *         child completion without blocking the run loop.
+ *         One handle() call is one round — every ready coroutine gets control
+ *         at most once, then handle() returns, so plain (non-coroutine) code
+ *         can share the superloop with it.
  *
  * Pool sizing:
  *   Specialize CoroTraits<> before the first use to override defaults:
@@ -71,7 +74,8 @@
  *   }
  *
  *   void loop() {                  // call from SysTick / superloop
- *       m::CoroScheduler::getInstance().handle();
+ *       m::CoroScheduler::getInstance().handle();  // one round, then returns
+ *       readButtons();                             // plain code is fine here
  *   }
  *
  *   // Optional: OOM hook and runtime stats (requires
@@ -284,6 +288,8 @@ class FifoQueue {
 
   bool empty() const { return !head_; }
 
+  std::size_t size() const { return count_; }
+
   void push(Handle h) {
     h.promise().next_ready_ = nullptr;
     if (tail_) {
@@ -292,6 +298,7 @@ class FifoQueue {
       head_ = h;
     }
     tail_ = h;
+    ++count_;
   }
 
   Handle pop() {
@@ -301,6 +308,7 @@ class FifoQueue {
       if (!head_) {
         tail_ = nullptr;
       }
+      --count_;
     }
     return head;
   }
@@ -308,6 +316,7 @@ class FifoQueue {
  private:
   Handle head_{nullptr};
   Handle tail_{nullptr};
+  std::size_t count_{0};
 };
 }  // namespace detail
 
@@ -328,9 +337,8 @@ class CoroSchedulerImpl {
   const CoroMemoryStats& coroutineMemoryStats() {
     return Pool::getInstance().stats();
   }
-
   void handle() {
-    while (!fifo_queue_.empty()) {
+    for (std::size_t ready = fifo_queue_.size(); ready > 0; --ready) {
       auto head = fifo_queue_.pop();
       if (head) {
         head.promise().scheduled_ = false;

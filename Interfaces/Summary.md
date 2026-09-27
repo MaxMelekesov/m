@@ -5,7 +5,7 @@ Pure abstract C++ interfaces. All hardware and logic dependencies are expressed 
 Each interface has a corresponding C++ concept (e.g. `CIO_Async`, `CMemory`) for template-constraint usage without virtual dispatch.
 
 See also:
-- [`Mcu/`](Mcu/Summary.md) — MCU peripheral interfaces (GPIO, timer, ADC DMA)
+- [`Mcu/`](Mcu/Summary.md) — MCU peripheral interfaces (GPIO, timer, endstop switch, ADC DMA)
 - [`StpMotor/`](StpMotor/Summary.md) — Stepper motor subsystem interfaces
 
 ## Files

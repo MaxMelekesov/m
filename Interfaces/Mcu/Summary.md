@@ -32,6 +32,13 @@ Timer interrupt firing at a run-time adjustable rate: the callback/start/stop co
 
 ---
 
+### `IEndstop.hpp` — `m::ifc::mcu::IEndstop`
+Mechanical end position switch (limit switch): the `IIt` interrupt contract plus the switch state, so both the level and the event are available. Used for homing/travel calibration.  
+**Key methods:** `pressed()→bool` (closed right now), `triggered()→bool` (pressed since the last `clear()`), `clear()`, plus `setCallback(fn)`, `start()`, `running()`, `stop()` from `IIt`  
+**Concept:** `CEndstop`
+
+---
+
 ### `IAdcDmaCircularReader.hpp` — `m::ifc::mcu::IAdcDmaCircularReader<T>`
 ADC DMA circular buffer reader interface. Supports half/full conversion callbacks for double-buffering.  
 **Key methods:** `setHalfConversionCallback(cb)`, `setFullConversionCallback(cb)`, `start(data)→bool`, `running()→bool`, `stop()→bool`  

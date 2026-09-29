@@ -29,8 +29,8 @@ class IPeriodicIt {
 
   virtual void setCallback(std::function<void()>&& cb) = 0;
 
-  virtual bool setFrequency(Unit value) = 0;
-  [[nodiscard]] virtual Unit getFrequency() = 0;
+  virtual bool setInterval(Unit value) = 0;
+  [[nodiscard]] virtual Unit getInterval() = 0;
 
   virtual bool start() = 0;
   virtual bool running() = 0;
@@ -41,15 +41,15 @@ template <typename T, typename UnitT>
 concept CPeriodicItOf =
     requires(T it, std::function<void()>&& cb, UnitT value) {
       { it.setCallback(std::move(cb)) } -> std::same_as<void>;
-      { it.setFrequency(value) } -> std::same_as<bool>;
-      { it.getFrequency() } -> std::same_as<UnitT>;
+      { it.setInterval(value) } -> std::same_as<bool>;
+      { it.getInterval() } -> std::same_as<UnitT>;
       { it.start() } -> std::same_as<bool>;
       { it.running() } -> std::same_as<bool>;
       { it.stop() } -> std::same_as<bool>;
     } &&
     std::is_same_v<decltype(&T::setCallback),
                    void (T::*)(std::function<void()>&&)> &&
-    std::is_same_v<decltype(&T::setFrequency), bool (T::*)(UnitT)>;
+    std::is_same_v<decltype(&T::setInterval), bool (T::*)(UnitT)>;
 
 template <typename T>
 concept CPeriodicIt =

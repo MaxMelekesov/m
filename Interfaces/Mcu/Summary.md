@@ -27,8 +27,8 @@ Timer or periodic interrupt interface with callback.
 
 ### `IPeriodicIt.hpp` — `m::ifc::mcu::IPeriodicIt<UnitT>`
 Timer interrupt firing at a run-time adjustable rate: the callback/start/stop contract of `IIt` plus frequency control. Parameterised by the frequency unit, so the storage type stays in the unit and out of the signatures. `using Unit = UnitT` (e.g. `m::Hz<uint32_t>`; `Hz` itself lives in `Logic/Units`).  
-**Key methods:** `setCallback(fn)`, `setFrequency(value)→bool` (false → rate unreachable, previous kept; safe to call while running), `getFrequency()→Unit`, `start()→bool`, `running()→bool`, `stop()→bool`  
-**Concepts:** `CPeriodicItOf<T, UnitT>`, `CPeriodicIt` (also satisfies `CIt`)
+**Key methods:** `setCallback(fn)`, `setInterval(value)→bool` (unit carries the meaning — `Hz<>` = rate, `Us<>` = period; false → value unreachable, previous kept; safe to call while running), `getInterval()→Unit`, `start()→bool`, `running()→bool`, `stop()→bool`
+**Concepts:** `CPeriodicItOf<T, UnitT>`, `CPeriodicIt` (also satisfies `CIt`). Unit-restricted aliases (a consumer that reads the number as a rate, e.g. Hz-only) are declared next to that consumer — the interface itself stays unit-agnostic.
 
 ---
 

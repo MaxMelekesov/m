@@ -54,7 +54,7 @@ MyFsm fsm;
 // Directly process event
 fsm.processEvent(Start{});
 bool res = fsm.isInState<Active>();
-// Chek & process events
+// Check & process events
 while (1) {
   fsm.handle();
 }

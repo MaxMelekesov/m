@@ -11,6 +11,7 @@
 #ifndef LOG_ERROR_INDICATOR_HPP
 #define LOG_ERROR_INDICATOR_HPP
 
+#include <EnumClass.hpp>
 #include <IPin.hpp>
 #include <ITime.hpp>
 #include <Ms.hpp>
@@ -18,19 +19,8 @@
 #include <bit>
 #include <bitset>
 #include <optional>
-#include <type_traits>
 
 namespace m {
-
-template <typename T>
-concept EnumClass =
-    std::is_enum_v<T> && !std::is_convertible_v<T, std::underlying_type_t<T>>;
-
-template <typename T>
-concept EnumClassWithSize = EnumClass<T> && requires {
-  T::Size;
-  requires std::is_same_v<decltype(T::Size), T>;
-};
 
 template <m::ifc::mcu::CPin PinT, m::ifc::CTime TimeT, EnumClassWithSize ErrorT>
   requires m::ifc::CMs<typename TimeT::Unit>

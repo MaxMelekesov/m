@@ -41,3 +41,12 @@ Zero-overhead compile-time logging mixin. Inherit, wire `ILog&`, call `error()`/
 Blink-coded LED error indicator. Encodes an error enum value as a sequence of long/short flashes. FSM-driven.  
 `ErrorT` must be an `enum class` with an `ErrorT::Size` member indicating the number of codes.  
 **Key methods:** `setError(ErrorT)`, `clearError()`, `hasError()→bool`, `handle()` (call in main loop)
+
+---
+
+### `ErrorLedIndicatorCoro.hpp` — `m::ErrorLedIndicatorCoro<PinT, TimeT, ErrorT>`
+Coroutine twin of `ErrorLedIndicator`: same flash code and the same timings, but no `Timer` and no polling —
+`coroRun()→Task<void>` is awaited once and then lives as long as the object, suspending on the clock between the flashes.
+`setError()`/`clearError()` may be called from any task: the change is picked up within one scheduler round, even in the
+middle of a flash, so a cleared code stops blinking at once. While there is nothing to show the task is parked with the LED dark.  
+**Key methods:** `setError(ErrorT)`, `clearError()`, `hasError()→bool`, `coroRun()→Task<void>`

@@ -23,6 +23,7 @@ template <typename Predicate>
   while (!pred()) {
     co_await m::coroYield();
   }
+  co_return;
 }
 
 // Wait while predicate returns true.
@@ -31,6 +32,7 @@ template <typename Predicate>
   while (pred()) {
     co_await m::coroYield();
   }
+  co_return;
 }
 
 }  // namespace m

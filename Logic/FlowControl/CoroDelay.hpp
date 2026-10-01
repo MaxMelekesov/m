@@ -24,6 +24,7 @@ inline auto coroDelay(TimeT& time,
     -> m::Task<void> {
   auto start = time.now();
   co_await m::coroUntil([&] { return time.diff(start) >= delay; });
+  co_return;
 }
 
 }  // namespace m

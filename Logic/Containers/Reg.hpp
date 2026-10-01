@@ -115,12 +115,8 @@ class Reg {
   template <CBitField Field>
   static constexpr std::size_t getFieldOffset() {
     std::size_t offset = 0;
-    bool found = false;
-    ((found ? (void)0
-            : (std::is_same_v<Field, Fields>
-                   ? (found = true, void(0))
-                   : (offset += Fields::size, void(0)))),
-     ...);
+    (void)((std::is_same_v<Field, Fields> || (offset += Fields::size, false)) ||
+           ...);
     return offset;
   }
 

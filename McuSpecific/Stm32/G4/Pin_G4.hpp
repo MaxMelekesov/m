@@ -69,7 +69,7 @@ class GpioRcc {
     else if (port == GPIOF)
       __HAL_RCC_GPIOF_CLK_DISABLE();
     else if (port == GPIOG)
-      __HAL_RCC_GPIOF_CLK_DISABLE();
+      __HAL_RCC_GPIOG_CLK_DISABLE();
     else if (port == GPIOG)
       __HAL_RCC_GPIOG_CLK_DISABLE();
   }

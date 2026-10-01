@@ -62,8 +62,10 @@ namespace m {
  *     which latches the root cause and hands the same code over every round).
  *   - `clearError()` is idempotent — with nothing to show it does not touch the
  *     pin, so it may be called every round as well.
- *   - While there is nothing to show the task is suspended with the LED dark:
- * it costs one ready-check per scheduler round and no hardware access at all.
+ *   - While there is nothing to show the task is suspended and the pin is not
+ *     touched at all — one ready-check per scheduler round and no hardware
+ *     access, so a lamp shared with something else (e.g. a traffic blink)
+ *     keeps working.
  *   - `coroRun()` is awaited exactly once and never returns.
  */
 template <m::ifc::mcu::CPin PinT, m::ifc::CTime TimeT,
@@ -107,8 +109,6 @@ class ErrorLedIndicatorCoro {
 
   m::Task<void> coroRun() {
     while (true) {
-      led_.write(false);
-
       if (!error_code_ || flash_sequence_sze_ == 0) {
         co_await wait(MsT{}, generation_);
         continue;
@@ -127,9 +127,6 @@ class ErrorLedIndicatorCoro {
           break;
         }
       }
-
-      led_.write(false);
-
       co_await wait(Pause_Between_Sequences, sequence);
     }
   }

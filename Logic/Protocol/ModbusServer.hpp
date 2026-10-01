@@ -876,10 +876,11 @@ class ModbusServer {
       if (!data_link_.stopTransmit()) co_return false;
     }
     if (running_) {
-      if (data_link_.startReceive(rx_buf_))
+      if (data_link_.startReceive(rx_buf_)) {
         co_await m::coroYield();
-      else
+      } else {
         co_return false;
+      }
     } else {
       co_return true;
     }
@@ -914,7 +915,7 @@ class ModbusServer {
 
   /// Modbus CRC-16 (poly 0xA001, reflected); result goes low byte first.
   static constexpr uint16_t crc16(std::span<const uint8_t> data) {
-    static constexpr uint16_t table[2] = {0x00'00, 0xA0'01};
+    static constexpr std::array<uint16_t, 2> table{0x00'00, 0xA0'01};
     uint16_t crc = 0xFF'FF;
     for (uint8_t byte : data) {
       crc ^= byte;
@@ -950,8 +951,9 @@ class ModbusServer {
     const auto no_crc = rx_buf.first(rx_buf.size() - 2);
     if (crc16(no_crc) !=
         (static_cast<uint16_t>(rx_buf[rx_buf.size() - 2]) |
-         (static_cast<uint16_t>(rx_buf[rx_buf.size() - 1]) << 8)))
+         (static_cast<uint16_t>(rx_buf[rx_buf.size() - 1]) << 8))) {
       return std::nullopt;
+    }
 
     const uint8_t addr = rx_buf[0];
     const uint8_t cmd = rx_buf[1];

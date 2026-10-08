@@ -8,8 +8,8 @@
  * Copyright (c) 2026 Max Melekesov <max.melekesov@gmail.com>
  */
 
-#ifndef CORO_SCHEDULER_HPP
-#define CORO_SCHEDULER_HPP
+#ifndef CORO_SCHEDULER_V2_HPP
+#define CORO_SCHEDULER_V2_HPP
 
 #include <algorithm>
 #include <array>
@@ -24,6 +24,18 @@
 /**
  * CoroScheduler — cooperative scheduler with a frame arena per activity: no
  * heap, frame sizes and concurrency fixed at build time.
+ *
+ * One scheduler serves one execution context (a dedicated core, thread, or
+ * superloop). Call handle(), create coroutines, and enqueue wakeups only from
+ * that context; use an explicit cross-core/ISR bridge for external events.
+ * Every Task and Activity must outlive its coroutine and be awaited at most
+ * once. A root Activity must await all Tasks allocated in its arena.
+ * Locals that live across a suspension point must not require alignment above
+ * Arena::Alignment.
+ *
+ * This header includes coroYield(), coroUntil(), coroWhile(), coroDelay(), and
+ * CoroMutex. Do not include the legacy Coro* helper headers in the same
+ * translation unit.
  *
  *   m::CoroArena<448> g_homing_arena;   // static frame buffer
  *
@@ -70,6 +82,7 @@ enum class FaultCode : std::uint8_t {
   Children_Alive,
   Reentrant_Handle,
   Task_Already_Awaited,
+  Task_Destroyed_Before_Done,
 };
 
 struct FaultInfo {
@@ -132,6 +145,7 @@ template <typename PromiseT>
 class Task_Handle;
 template <class Awaiter>
 struct Slot_Awaiter;
+struct Reschedule_Awaiter;
 struct Final_Awaiter;
 
 struct PromiseBase {
@@ -299,8 +313,9 @@ class Arena {
     return reinterpret_cast<Node&>(storage_[offset]);
   }
   [[nodiscard]] Offset offsetOf(const Node& node) const noexcept {
-    const auto* address = reinterpret_cast<const std::byte*>(&node);
-    return static_cast<Offset>(address - storage_.data());
+    const auto base = reinterpret_cast<std::uintptr_t>(storage_.data());
+    const auto address = reinterpret_cast<std::uintptr_t>(&node);
+    return static_cast<Offset>(address - base);
   }
 
   static constexpr bool Stats_Enabled = (M_CORO_ARENA_ENABLE_STATS != 0);
@@ -378,19 +393,6 @@ class CoroScheduler {
     running_ = false;
   }
 
-  /// For an awaiter of your own: the coroutine to resume in a later round.
-  void enqueue(std::coroutine_handle<> handle) noexcept {
-    if (!handle) {
-      return;
-    }
-    Handle base = Handle::from_address(handle.address());
-    if (base.promise().scheduled_ || base.promise().waiting_for_nested_) {
-      return;
-    }
-    base.promise().scheduled_ = true;
-    queue_.push(base);
-  }
-
   static CoroScheduler& getInstance() noexcept {
     static CoroScheduler instance;
     return instance;
@@ -400,9 +402,23 @@ class CoroScheduler {
   CoroScheduler& operator=(const CoroScheduler&) = delete;
 
  private:
+  friend struct detail::coro::Reschedule_Awaiter;
+  friend struct detail::coro::Final_Awaiter;
+
   CoroScheduler() noexcept = default;
 
   using Handle = std::coroutine_handle<detail::coro::PromiseBase>;
+
+  void enqueue(Handle handle) noexcept {
+    if (!handle) {
+      return;
+    }
+    if (handle.promise().scheduled_ || handle.promise().waiting_for_nested_) {
+      return;
+    }
+    handle.promise().scheduled_ = true;
+    queue_.push(handle);
+  }
 
   struct Queue {
     void push(Handle handle) noexcept {
@@ -459,7 +475,8 @@ inline void attach(PromiseBase& self) noexcept {
 struct Reschedule_Awaiter {
   bool await_ready() noexcept { return false; }
   void await_suspend(std::coroutine_handle<> handle) noexcept {
-    CoroScheduler::getInstance().enqueue(handle);
+    CoroScheduler::getInstance().enqueue(
+        std::coroutine_handle<PromiseBase>::from_address(handle.address()));
   }
   void await_resume() noexcept {}
 };
@@ -519,6 +536,7 @@ template <typename T>
 struct Value_Promise : PromiseBase {
   using Value = T;
   T value{};
+  bool result_taken_{false};
 
   explicit Value_Promise(Arena& arena) noexcept : PromiseBase(arena) {}
 
@@ -528,6 +546,7 @@ struct Value_Promise : PromiseBase {
 template <>
 struct Value_Promise<void> : PromiseBase {
   using Value = void;
+  bool result_taken_{false};
 
   explicit Value_Promise(Arena& arena) noexcept : PromiseBase(arena) {}
 
@@ -607,6 +626,14 @@ struct Task_Awaiter {
       coro.promise().continuation_ = nullptr;
       suspended_ = false;
     }
+    if constexpr (Traps_Enabled) {
+      if (coro && coro.promise().result_taken_) {
+        fault(FaultCode::Task_Already_Awaited, 0, 0);
+      }
+    }
+    if (coro) {
+      coro.promise().result_taken_ = true;
+    }
     using Value = typename PromiseT::Value;
     if constexpr (std::is_void_v<Value>) {
       return;
@@ -624,7 +651,15 @@ class Task_Handle {
  public:
   Task_Handle() noexcept = default;
   ~Task_Handle() {
-    if (arena_ != nullptr) arena_->release(offset_);
+    if (arena_ == nullptr) {
+      return;
+    }
+    if constexpr (Traps_Enabled) {
+      if (!handle().done()) {
+        fault(FaultCode::Task_Destroyed_Before_Done, 0, 0);
+      }
+    }
+    arena_->release(offset_);
   }
   Task_Handle(Task_Handle&& other) noexcept
       : arena_{std::exchange(other.arena_, nullptr)},
@@ -720,6 +755,85 @@ class Activity
   using detail::coro::Task_Handle<promise_type>::Task_Handle;
 };
 
+[[nodiscard]] inline auto coroYield() noexcept {
+  return detail::coro::Reschedule_Awaiter{};
+}
+
+/// Wait until predicate returns true, checking it once per scheduler round.
+template <typename Predicate>
+[[nodiscard]] Task<void> coroUntil(Predicate predicate) {
+  while (!predicate()) {
+    co_await coroYield();
+  }
+}
+
+/// Wait while predicate returns true, checking it once per scheduler round.
+template <typename Predicate>
+[[nodiscard]] Task<void> coroWhile(Predicate predicate) {
+  while (predicate()) {
+    co_await coroYield();
+  }
+}
+
+template <typename TimeT>
+[[nodiscard]] Task<void> coroDelay(
+    TimeT& time, decltype(std::declval<TimeT&>().now()) delay) {
+  const auto start = time.now();
+  co_await coroUntil(
+      [&time, start, delay] { return time.diff(start) >= delay; });
+}
+
+/// Coroutine mutex with polling acquisition.
+///
+///   auto guard = co_await mutex.lock();
+///   // The mutex unlocks when guard leaves scope.
+class CoroMutex {
+ public:
+  class Guard {
+   public:
+    Guard() noexcept = default;
+    explicit Guard(CoroMutex& mutex) noexcept : mutex_(&mutex) {}
+    ~Guard() { unlock(); }
+
+    void unlock() noexcept {
+      if (mutex_ != nullptr) {
+        mutex_->unlock();
+        mutex_ = nullptr;
+      }
+    }
+
+    Guard(const Guard&) = delete;
+    Guard& operator=(const Guard&) = delete;
+    Guard(Guard&& other) noexcept
+        : mutex_(std::exchange(other.mutex_, nullptr)) {}
+    Guard& operator=(Guard&& other) noexcept {
+      if (this != &other) {
+        unlock();
+        mutex_ = std::exchange(other.mutex_, nullptr);
+      }
+      return *this;
+    }
+
+   private:
+    CoroMutex* mutex_{nullptr};
+  };
+
+  [[nodiscard]] bool isLocked() const noexcept { return locked_; }
+
+  [[nodiscard]] Task<Guard> lock() {
+    while (locked_) {
+      co_await coroYield();
+    }
+    locked_ = true;
+    co_return Guard{*this};
+  }
+
+ private:
+  void unlock() noexcept { locked_ = false; }
+
+  bool locked_{false};
+};
+
 }  // namespace m
 
-#endif
+#endif  // CORO_SCHEDULER_V2_HPP

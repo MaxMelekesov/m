@@ -25,7 +25,6 @@
  * CoroScheduler — cooperative scheduler with a frame arena per activity: no
  * heap, frame sizes and concurrency fixed at build time.
  *
- * Usage:
  *   m::CoroArena<448> g_homing_arena;   // static frame buffer
  *
  *   // Root coroutine ("activity"): the arena is the first parameter — the
@@ -41,91 +40,15 @@
  *   void loop() {                                 // superloop / SysTick
  *     m::CoroScheduler::getInstance().handle();   // one round, then returns
  *   }
- *
- * Public API — everything else in this header is internal:
- *   using the scheduler
- *     CoroArena<Bytes>            static frame buffer + arena
- *     Arena                       the arena reference an activity takes
- *     Activity<T>                 root coroutine, one per activity
- *     Task<T>                     nested coroutine, borrows the arena
- *     CoroScheduler::getInstance().handle()   one round of the superloop
- *     CoroScheduler::getInstance().enqueue(h) for a custom awaiter that wants
- *                                 `h` resumed in a later round
- *     Arena::capacity/used/peak/peakFrames    sizing and accounting
- *     Arena::Alignment                        what a frame is aligned to
- *   the coro* helpers (CoroYield/CoroDelay/CoroUntil/CoroMutex headers)
- *     coroYield(), coroDelay(), coroUntil(), coroWhile(), CoroMutex
- *   joining a child
- *     co_await the child's own Task<T> handle - keep the handle in the frame
- *     that needs the result, that is the whole join mechanism
- *   diagnostics
- *     FaultCode, FaultInfo
- *     CoroScheduler::getInstance().setFaultHandler(h)   where a fault goes
- *
- * Everything else lives in namespace m::detail::coro: it is implementation, the
- * names and the layout change without notice, and nothing outside this header
- * may name it.  api_boundary.sh in the session harness asserts that none of it
- * is reachable from the outside.
- *
- * Notes:
- *   - Nested coroutines are ordinary functions returning m::Task<T>: no arena
- *     of their own, they borrow the activity's.
- *   - A nested coroutine runs to its first suspension as it is created, so
- *     building a deep chain costs stack per level (about 50-130 bytes).
- *   - Size an arena from the measured worst case: g_homing_arena.peak().
- *     Frames are reclaimed only from the top of the stack, so a burst of
- *     detached children needs room for all of them at once: the number to
- *     size with is g_homing_arena.peakFrames().
- *   - A frame local must not ask for more alignment than m::Arena::Alignment:
- *     frames are aligned to it, and the compiler does not diagnose a mismatch.
- *   - A creator must await its nested coroutines before returning.
- *   - The arena is made only by CoroArena: it owns the frame buffer, so there
- *     is no arena over anyone else's buffer.  Put the CoroArena object where
- *     the frames should live (a static, a member, a local scope).
- *   - An Activity handle is a lease on the arena: while it is alive, a new
- *     activity on the same arena reaches the fault handler as Arena_Busy, even
- *     if the previous activity already finished.  Let the handle leave its
- *     scope before starting the next activity on that arena.
- *   - One task has one waiter: awaiting a task that another coroutine is
- *     already awaiting reaches the fault handler as Task_Already_Awaited.
- *   - A task handle must not outlive the frame of the coroutine that created
- *     it.  It does not have to outlive its waiters: a frame that is still
- *     awaited is kept in the arena until the waiter has read its value, and
- *     then stays there until everything above it is gone.
- *   - Faults (overflow, a busy arena, a task outside an activity, live nested
- *     coroutines, a task awaited twice, a re-entrant handle()) reach the
- *     installed handler as m::FaultInfo{code, need, have}; nothing is printed,
- *     and without a handler std::abort() runs:
- *
- *       m::CoroScheduler::getInstance().setFaultHandler(
- *           [](const m::FaultInfo& f) {
- *             tracer.report(static_cast<unsigned>(f.code), f.need, f.have);
- *           });
- *
- *     M_CORO_ARENA_TRAPS=0 compiles these traps out for a release build; the
- *     faults that report a resource limit (overflow) are always compiled in.
  */
 
 namespace m {
 
-// Compile-time switches for the tightest builds:
-//   M_CORO_ARENA_ENABLE_STATS=0 - strip peak()/peakFrames()/frames_ tracking
-//     (~6% off creation); peak() and peakFrames() then report 0, so run the
-//     sizing pass with the statistics on.
-//   M_CORO_ARENA_TRAPS=0 - remove the precondition traps (a task created
-//     outside an activity, a task awaited twice, a re-entrant handle(), a
-//     second activity on a busy arena, a creator returning with live nested
-//     coroutines).  Valid code never reaches one, and each costs a compare on
-//     the creation or suspension path; with the traps gone an already broken
-//     precondition is silent instead of loud, so keep them on in any build
-//     that can still be debugged.  The children counter behind the
-//     Children_Alive trap, and the memory it takes in every frame, go with
-//     them: a build without traps joins a child by awaiting its handle.
 #ifndef M_CORO_ARENA_ENABLE_STATS
-#define M_CORO_ARENA_ENABLE_STATS 1
+#define M_CORO_ARENA_ENABLE_STATS 1  // 0 strips peak()/peakFrames()/frames_
 #endif
 #ifndef M_CORO_ARENA_TRAPS
-#define M_CORO_ARENA_TRAPS 1
+#define M_CORO_ARENA_TRAPS 1  // 0 drops the precondition traps
 #endif
 
 template <std::size_t Bytes>
@@ -157,19 +80,14 @@ struct FaultInfo {
 
 using Fault_Handler = void (*)(const FaultInfo&);
 
-// ───────────────────────────── implementation ──────────────────────────────
-// Nothing below this point is part of the API: the names, the layout and the
-// behaviour of detail::coro change without notice, and no other header may
-// name anything inside it.
+// Not part of the API: names, layout and behaviour change without notice.
 
 namespace detail::coro {
 
 using Offset = std::size_t;
 inline constexpr Offset No_Node = static_cast<Offset>(-1);
 
-// Every frame starts on this boundary; it is what a coroutine frame needs for
-// any object the standard library may put in one (the larger of max_align_t
-// and the default operator new alignment).
+// Frames start here; a coroutine local must not ask for more alignment.
 #ifdef __STDCPP_DEFAULT_NEW_ALIGNMENT__
 inline constexpr std::size_t Arena_Alignment =
     std::max(alignof(std::max_align_t),
@@ -179,31 +97,20 @@ inline constexpr std::size_t Arena_Alignment = alignof(std::max_align_t);
 #endif
 
 inline constexpr bool Traps_Enabled = (M_CORO_ARENA_TRAPS != 0);
-[[nodiscard]] inline Fault_Handler& faultHandler() noexcept {
-  static Fault_Handler handler = nullptr;
-  return handler;
-}
+inline Fault_Handler g_handler = nullptr;
 
 [[noreturn]] inline void fault(FaultCode code, std::size_t need,
                                std::size_t have) noexcept {
-  if (Fault_Handler handler = faultHandler(); handler != nullptr) {
-    handler(FaultInfo{code, need, have});
-  }
+  if (g_handler != nullptr) g_handler(FaultInfo{code, need, have});
   std::abort();
 }
 
-/// How many nested coroutines a frame is still waiting for.  Only the
-/// Children_Alive trap reads it, so a build without traps has no counter and
-/// pays no memory for one.
+/// Read only by the Children_Alive trap.
 template <bool Enabled>
 struct Children {
   std::size_t n{0};
   void born() noexcept { ++n; }
-  void died() noexcept {
-    if (n > 0) {
-      --n;
-    }
-  }
+  void died() noexcept { --n; }
   [[nodiscard]] std::size_t live() const noexcept { return n; }
 };
 
@@ -214,8 +121,36 @@ struct Children<false> {
   [[nodiscard]] std::size_t live() const noexcept { return 0; }
 };
 
+// Forward declarations: the promise machinery below, and Arena, befriend these.
+template <typename T>
+struct Value_Promise;
+template <typename T>
+struct Task_Promise;
+template <typename T>
+struct Activity_Promise;
+template <typename PromiseT>
+class Task_Handle;
+template <class Awaiter>
+struct Slot_Awaiter;
+struct Final_Awaiter;
+
 struct PromiseBase {
   explicit PromiseBase(Arena& arena) noexcept : arena_(arena) {}
+
+  template <class Operand>
+  auto await_transform(Operand&& operand) {
+    if constexpr (requires {
+                    std::forward<Operand>(operand).operator co_await();
+                  }) {
+      using Awaiter =
+          decltype(std::forward<Operand>(operand).operator co_await());
+      return Slot_Awaiter<Awaiter>{
+          *this, std::forward<Operand>(operand).operator co_await()};
+    } else {
+      return Slot_Awaiter<std::remove_cvref_t<Operand>>{
+          *this, std::forward<Operand>(operand)};
+    }
+  }
 
   Arena& arena_;
   Offset parent_{No_Node};
@@ -230,23 +165,9 @@ struct PromiseBase {
   bool waiting_for_nested_{false};
 };
 
-[[nodiscard]] inline PromiseBase*& currentSlot() noexcept {
-  static PromiseBase* current = nullptr;
-  return current;
-}
-
-// Forward declarations: Arena befriends these, they are defined below.
-template <typename T>
-struct Value_Promise;
-template <typename T>
-struct Task_Promise;
-template <typename T>
-struct Activity_Promise;
-template <typename PromiseT>
-class Task_Handle;
-template <class Awaiter>
-struct Slot_Awaiter;
-struct Final_Awaiter;
+// Who is running: operator new() and the promise constructor get no caller
+// context, so a nested frame learns its arena and its owner from here.
+inline PromiseBase* g_slot = nullptr;
 
 void attach(PromiseBase& self) noexcept;
 
@@ -268,15 +189,9 @@ class Arena {
   [[nodiscard]] std::size_t peak() const noexcept { return peak_; }
   [[nodiscard]] std::size_t peakFrames() const noexcept { return peak_frames_; }
 
-  /// What a frame is aligned to.  A local variable inside a coroutine must not
-  /// ask for more alignment than this: the compiler does not diagnose it, and
-  /// the object would silently land misaligned in the frame.
   static constexpr std::size_t Alignment = detail::coro::Arena_Alignment;
 
  private:
-  // Only CoroArena makes an Arena: it is the one that owns the storage, so the
-  // storage is always aligned and always as large as it says.  An Arena is
-  // never built on a buffer from the outside.
   template <std::size_t>
   friend class CoroArena;
 
@@ -286,8 +201,6 @@ class Arena {
       return;
     }
     if constexpr (detail::coro::Traps_Enabled) {
-      // CoroArena declares its storage alignas(Alignment), so this can only
-      // fire if the library itself regresses - it is kept as a guard.
       const auto base = reinterpret_cast<std::uintptr_t>(storage_.data());
       if (base % detail::coro::Arena_Alignment != 0) {
         detail::coro::fault(
@@ -297,12 +210,6 @@ class Arena {
     }
   }
 
-  // The frame machinery is the only thing allowed to touch the stack; the
-  // list is also the documentation of who does what:
-  //   Task_Promise/Activity_Promise - take the frame (allocate, bind)
-  //   Task_Handle                   - give it back (release, offsetOf, nodeAt)
-  //   attach                        - link a nested frame to its creator
-  //   Slot_Awaiter/Final_Awaiter    - walk to the creator while suspending
   template <typename>
   friend struct detail::coro::Task_Promise;
   template <typename>
@@ -325,9 +232,7 @@ class Arena {
     if (end > capacity()) {
       detail::coro::fault(FaultCode::Arena_Overflow, end, capacity());
     }
-    // The promise is constructed after the frame, so bind() reads the frame
-    // end back from here.  0 means "nothing pending", and a frame end is never
-    // 0, so the flag needs no second member.
+    // 0 means "nothing pending"; bind() reads the frame end back from here.
     pending_ = end;
     if constexpr (Stats_Enabled) {
       peak_ = std::max(end, peak_);
@@ -352,12 +257,9 @@ class Arena {
       }
     }
     node.below_ = top_;
-    if (pending_ != 0) {
-      node.end_ = pending_;
-      pending_ = 0;
-    } else {
-      node.end_ = (top_ == No_Node) ? 0 : nodeAt(top_).end_;
-    }
+    node.end_ =
+        pending_ != 0 ? pending_ : (top_ == No_Node ? 0 : nodeAt(top_).end_);
+    pending_ = 0;
     top_ = offsetOf(node);
     if constexpr (Stats_Enabled) {
       ++frames_;
@@ -374,9 +276,7 @@ class Arena {
       }
       if (node.owned_) {
         const bool creator_done =
-            node.parent_ != No_Node &&
-            std::coroutine_handle<Node>::from_promise(nodeAt(node.parent_))
-                .done();
+            node.parent_ != No_Node && done(nodeAt(node.parent_));
         if (!creator_done) {
           break;
         }
@@ -392,6 +292,9 @@ class Arena {
     }
   }
 
+  [[nodiscard]] static bool done(Node& node) noexcept {
+    return std::coroutine_handle<Node>::from_promise(node).done();
+  }
   [[nodiscard]] Node& nodeAt(Offset offset) const noexcept {
     return reinterpret_cast<Node&>(storage_[offset]);
   }
@@ -444,12 +347,10 @@ class CoroArena {
 
 class CoroScheduler {
  public:
-  /// Where a fault is reported before std::abort().  Kept on the instance,
-  /// like setCoroutineOomCallback() on the pool scheduler in
-  /// m/Logic/FlowControl; the storage itself stays with the fault machinery so
-  /// that an Arena alone does not pull the scheduler into a translation unit.
+  /// Where a fault goes before std::abort(); the storage stays with the fault
+  /// machinery, so an Arena alone does not pull the scheduler in.
   void setFaultHandler(Fault_Handler handler) noexcept {
-    detail::coro::faultHandler() = handler;
+    detail::coro::g_handler = handler;
   }
 
   void handle() {
@@ -459,31 +360,25 @@ class CoroScheduler {
       }
     }
     running_ = true;
-    // One round = the coroutines that are ready right now: remembering the
-    // tail is exactly that set, and saves a counter update per pop.
-    const Handle stop = queue_.tail();
-    if (!queue_.empty()) {
-      for (;;) {
-        Handle head = queue_.pop();
-        detail::coro::PromiseBase& promise = head.promise();
-        promise.scheduled_ = false;
-        // No done() test here: a queued coroutine is never finished.  It can
-        // enter the queue only while it is suspended (yield, task await or an
-        // external awaiter), and every wakeup clears waiting_for_nested_ before
-        // enqueueing it.  tests/model_check asserts this after every round.
-        detail::coro::currentSlot() = &promise;
-        head.resume();
-        if (head == stop) {
-          break;
-        }
+    // One round = what is ready right now: the tail remembers that set.
+    const Handle stop = queue_.tail_;
+    while (queue_.head_ != nullptr) {
+      Handle head = queue_.pop();
+      detail::coro::PromiseBase& promise = head.promise();
+      promise.scheduled_ = false;
+      // A queued coroutine is never finished, and a wakeup clears
+      // waiting_for_nested_ before enqueueing it.
+      detail::coro::g_slot = &promise;
+      head.resume();
+      if (head == stop) {
+        break;
       }
     }
-    detail::coro::currentSlot() = nullptr;
+    detail::coro::g_slot = nullptr;
     running_ = false;
   }
 
-  /// The extension point for an awaiter of your own: hand it the coroutine it
-  /// should resume in a later round, exactly as coroYield() does.
+  /// For an awaiter of your own: the coroutine to resume in a later round.
   void enqueue(std::coroutine_handle<> handle) noexcept {
     if (!handle) {
       return;
@@ -510,9 +405,6 @@ class CoroScheduler {
   using Handle = std::coroutine_handle<detail::coro::PromiseBase>;
 
   struct Queue {
-    [[nodiscard]] bool empty() const noexcept { return head_ == nullptr; }
-    [[nodiscard]] Handle tail() const noexcept { return tail_; }
-
     void push(Handle handle) noexcept {
       handle.promise().next_ready_ = nullptr;
       if (tail_ != nullptr) {
@@ -523,7 +415,7 @@ class CoroScheduler {
       tail_ = handle;
     }
 
-    [[nodiscard]] Handle pop() noexcept {
+    Handle pop() noexcept {
       Handle handle = head_;
       head_ = handle.promise().next_ready_;
       if (head_ == nullptr) {
@@ -532,7 +424,6 @@ class CoroScheduler {
       return handle;
     }
 
-   private:
     Handle head_{nullptr};
     Handle tail_{nullptr};
   };
@@ -544,7 +435,7 @@ class CoroScheduler {
 namespace detail::coro {
 
 [[nodiscard]] inline PromiseBase& currentCreator() noexcept {
-  PromiseBase* creator = currentSlot();
+  PromiseBase* creator = g_slot;
   if constexpr (Traps_Enabled) {
     if (creator == nullptr) {
       fault(FaultCode::No_Activity, 0, 0);
@@ -562,7 +453,7 @@ inline void attach(PromiseBase& self) noexcept {
   self.parent_ = self.arena_.offsetOf(creator);
   creator.children_.born();
   self.arena_.bind(self);
-  currentSlot() = &self;
+  g_slot = &self;
 }
 
 struct Reschedule_Awaiter {
@@ -571,13 +462,6 @@ struct Reschedule_Awaiter {
     CoroScheduler::getInstance().enqueue(handle);
   }
   void await_resume() noexcept {}
-};
-
-[[nodiscard]] inline Reschedule_Awaiter yield() noexcept { return {}; }
-
-template <class Operand>
-concept Has_Co_Await = requires(Operand&& value) {
-  std::forward<Operand>(value).operator co_await();
 };
 
 template <class Awaiter>
@@ -589,31 +473,14 @@ struct Slot_Awaiter {
 
   template <class Caller>
   decltype(auto) await_suspend(Caller caller) {
-    currentSlot() =
+    g_slot =
         self.parent_ == No_Node ? nullptr : &self.arena_.nodeAt(self.parent_);
     return awaiter.await_suspend(caller);
   }
 
   decltype(auto) await_resume() {
-    currentSlot() = &self;
+    g_slot = &self;
     return awaiter.await_resume();
-  }
-};
-
-struct Slot_Promise : PromiseBase {
-  explicit Slot_Promise(Arena& arena) noexcept : PromiseBase(arena) {}
-
-  template <class Operand>
-  auto await_transform(Operand&& operand) {
-    if constexpr (Has_Co_Await<Operand>) {
-      using Awaiter =
-          decltype(std::forward<Operand>(operand).operator co_await());
-      return Slot_Awaiter<Awaiter>{
-          *this, std::forward<Operand>(operand).operator co_await()};
-    } else {
-      using Awaiter = std::remove_cvref_t<Operand>;
-      return Slot_Awaiter<Awaiter>{*this, std::forward<Operand>(operand)};
-    }
   }
 };
 
@@ -631,13 +498,13 @@ struct Final_Awaiter {
     if (promise.parent_ != No_Node) {
       PromiseBase& parent = promise.arena_.nodeAt(promise.parent_);
       parent.children_.died();
-      currentSlot() = &parent;
+      g_slot = &parent;
     } else {
-      currentSlot() = nullptr;
+      g_slot = nullptr;
     }
     if (promise.continuation_ != nullptr) {
-      // continuation_ is left set: the waiter clears it in await_resume, and
-      // until it does the frame below must stay in the arena (Arena::sweep).
+      // continuation_ stays set until the waiter clears it; until then the
+      // frame stays in the arena (Arena::sweep).
       PromiseBase& continuation = *promise.continuation_;
       continuation.waiting_for_nested_ = false;
       CoroScheduler::getInstance().enqueue(
@@ -649,20 +516,20 @@ struct Final_Awaiter {
 };
 
 template <typename T>
-struct Value_Promise : Slot_Promise {
+struct Value_Promise : PromiseBase {
   using Value = T;
   T value{};
 
-  explicit Value_Promise(Arena& arena) noexcept : Slot_Promise(arena) {}
+  explicit Value_Promise(Arena& arena) noexcept : PromiseBase(arena) {}
 
   void return_value(T produced) { this->value = std::move(produced); }
 };
 
 template <>
-struct Value_Promise<void> : Slot_Promise {
+struct Value_Promise<void> : PromiseBase {
   using Value = void;
 
-  explicit Value_Promise(Arena& arena) noexcept : Slot_Promise(arena) {}
+  explicit Value_Promise(Arena& arena) noexcept : PromiseBase(arena) {}
 
   void return_void() noexcept {}
 };
@@ -728,9 +595,8 @@ struct Task_Awaiter {
       }
     }
     PromiseBase& waiting = caller.promise();
-    // Stays set until this awaiter resumes: it is both the "one task, one
-    // waiter" claim and the pin that keeps Arena::sweep() from recycling the
-    // frame before the value is read below.
+    // The one-waiter claim, and the pin that keeps Arena::sweep() from
+    // recycling the frame before the value is read.
     coro.promise().continuation_ = &waiting;
     suspended_ = true;
     waiting.waiting_for_nested_ = true;
@@ -757,7 +623,9 @@ template <typename PromiseT>
 class Task_Handle {
  public:
   Task_Handle() noexcept = default;
-  ~Task_Handle() { releaseFrame(); }
+  ~Task_Handle() {
+    if (arena_ != nullptr) arena_->release(offset_);
+  }
   Task_Handle(Task_Handle&& other) noexcept
       : arena_{std::exchange(other.arena_, nullptr)},
         offset_{std::exchange(other.offset_, No_Node)} {}
@@ -795,22 +663,11 @@ class Task_Handle {
   [[nodiscard]] std::coroutine_handle<PromiseT> handle() const noexcept {
     return arena_ == nullptr
                ? std::coroutine_handle<PromiseT>{}
-               : std::coroutine_handle<PromiseT>::from_promise(promise());
+               : std::coroutine_handle<PromiseT>::from_promise(
+                     static_cast<PromiseT&>(arena_->nodeAt(offset_)));
   }
 
  private:
-  [[nodiscard]] PromiseT& promise() const noexcept {
-    return static_cast<PromiseT&>(arena_->nodeAt(offset_));
-  }
-
-  void releaseFrame() noexcept {
-    if (arena_ != nullptr) {
-      arena_->release(offset_);
-    }
-    arena_ = nullptr;
-    offset_ = No_Node;
-  }
-
   Arena* arena_{nullptr};
   Offset offset_{No_Node};
 };

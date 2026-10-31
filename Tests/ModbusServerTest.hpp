@@ -778,6 +778,7 @@ struct FakeDl : m::ifc::IDataLink {
   bool stopReceive() override { return true; }
   bool stopTransmit() override { return true; }
   bool error() override { return false; }
+  void clearError() override {}
 };
 
 struct FakeTime : m::ifc::ITime<Us<uint32_t>> {

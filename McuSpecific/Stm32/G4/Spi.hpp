@@ -94,6 +94,8 @@ class Spi final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return HAL_SPI_GetError(&hspi_) != HAL_SPI_ERROR_NONE;
   }
 
+  void clearError() override { hspi_.ErrorCode = HAL_SPI_ERROR_NONE; }
+
  private:
   SPI_HandleTypeDef& hspi_;
   Bps<uint32_t> baud_;

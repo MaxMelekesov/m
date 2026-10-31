@@ -19,16 +19,16 @@ namespace m::ifc {
 template <CmA mAT>
 class IStepDriver {
  public:
-  enum class Microstep : uint8_t {
-    M_1 = 0,
-    M_2,
-    M_4,
-    M_8,
-    M_16,
-    M_32,
-    M_64,
-    M_128,
-    M_256
+  enum class Microstep : uint16_t {
+    M_1 = 1,
+    M_2 = 2,
+    M_4 = 4,
+    M_8 = 8,
+    M_16 = 16,
+    M_32 = 32,
+    M_64 = 64,
+    M_128 = 128,
+    M_256 = 256
   };
 
   enum class Dir : uint8_t { Forward = 0, Backward };

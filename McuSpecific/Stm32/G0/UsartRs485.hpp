@@ -109,6 +109,11 @@ class UsartRs485 final : public m::ifc::IIO_Async<Bps<uint32_t>> {
     return HAL_UART_GetError(&huart_) != HAL_UART_ERROR_NONE;
   }
 
+  void clearError() override {
+    __HAL_UART_CLEAR_OREFLAG(&huart_);
+    huart_.ErrorCode = HAL_UART_ERROR_NONE;
+  }
+
  private:
   m::ifc::mcu::IPin& dr_en_;
   UART_HandleTypeDef& huart_;

@@ -124,6 +124,12 @@ class CoroSettings {
     has_changes_ = true;
   }
 
+ protected:
+  template <typename Fn>
+  void forEachTag(Fn&& fn) {
+    (fn.template operator()<SettingsTags>(), ...);
+  }
+
  private:
   StorageType storage_;
   bool has_changes_ = false;

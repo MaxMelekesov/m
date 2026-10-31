@@ -87,6 +87,7 @@ class IDataLink {
   virtual bool stopReceive() = 0;
   virtual bool stopTransmit() = 0;
   virtual bool error() = 0;
+  virtual void clearError() = 0;
 };
 
 /*
@@ -104,6 +105,7 @@ concept CDataLink =
       { dl.stopReceive() } -> std::same_as<bool>;
       { dl.stopTransmit() } -> std::same_as<bool>;
       { dl.error() } -> std::same_as<bool>;
+      { dl.clearError() } -> std::same_as<void>;
     };
 
 static_assert(CDataLink<IDataLink>, "IDataLink must satisfy CDataLink concept");

@@ -96,6 +96,7 @@ class ISRStepPositioner {
     if (steps == 0) return true;
     if (endstopBlocks(steps)) return false;
     emg_active_.store(false, std::memory_order_release);
+    emg_stop_req_.store(false, std::memory_order_release);
     soft_stop_req_.store(false, std::memory_order_release);
     if (!gen_.running()) gen_.start();
     target_pos_.fetch_add(steps, std::memory_order_acq_rel);
@@ -110,6 +111,7 @@ class ISRStepPositioner {
     if (endstopBlocks(pos - loaded_pos_sync_.load(std::memory_order_acquire)))
       return false;
     emg_active_.store(false, std::memory_order_release);
+    emg_stop_req_.store(false, std::memory_order_release);
     soft_stop_req_.store(false, std::memory_order_release);
     if (!gen_.running()) gen_.start();
     target_pos_.store(pos, std::memory_order_release);

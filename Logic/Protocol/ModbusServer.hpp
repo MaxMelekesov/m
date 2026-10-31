@@ -874,6 +874,7 @@ class ModbusServer {
     if (data_link_.error()) {
       if (!data_link_.stopReceive()) co_return false;
       if (!data_link_.stopTransmit()) co_return false;
+      data_link_.clearError();
     }
     if (running_) {
       if (data_link_.startReceive(rx_buf_)) {
@@ -947,6 +948,7 @@ class ModbusServer {
   std::optional<uint32_t> process(std::span<uint8_t> rx_buf,
                                   std::span<uint8_t> tx_buf) {
     if (rx_buf.size() < 4 || rx_buf.size() > 256) return std::nullopt;
+    if (tx_buf.size() < 8) return std::nullopt;
 
     const auto no_crc = rx_buf.first(rx_buf.size() - 2);
     if (crc16(no_crc) !=
@@ -1002,6 +1004,8 @@ class ModbusServer {
     } else {
       total += resp_size;
     }
+    if (total + 2U > tx_buf.size()) return std::nullopt;
+
     auto crc = crc16(tx_buf.first(total));
     tx_buf[total] = static_cast<uint8_t>(crc);
     tx_buf[total + 1] = static_cast<uint8_t>(crc >> 8);

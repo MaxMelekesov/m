@@ -37,6 +37,10 @@ class DataLinkAsync : public ifc::IDataLink {
     rx_between_bytes_timer_.restart(timings.packet_rx_time_between_bytes);
   }
 
+  void setTimings(Timings timings) {
+    rx_between_bytes_timer_.restart(timings.packet_rx_time_between_bytes);
+  }
+
   bool startReceive(std::span<uint8_t> rx_buf) override {
     if (!io_.isReadDone()) return false;
     rx_buf_ = rx_buf;
@@ -117,6 +121,8 @@ class DataLinkAsync : public ifc::IDataLink {
   }
 
   bool error() override { return io_.error(); }
+
+  void clearError() override { io_.clearError(); }
 
  private:
   ifc::IIO_Async<BpsT>& io_;

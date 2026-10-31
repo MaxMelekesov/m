@@ -38,6 +38,7 @@ class IIO_Async {
   virtual bool setBaudrate(UnitT baud) = 0;
 
   virtual bool error() = 0;
+  virtual void clearError() = 0;
 };
 
 template <typename T, typename BaudT>
@@ -57,6 +58,7 @@ concept CIO_AsyncOf = requires(T& io, std::span<uint8_t> rx_buf,
   { io.setBaudrate(baud) } -> std::same_as<bool>;
 
   { io.error() } -> std::same_as<bool>;
+  { io.clearError() } -> std::same_as<void>;
 };
 
 template <typename T>

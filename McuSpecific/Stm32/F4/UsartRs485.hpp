@@ -107,13 +107,21 @@ class [[deprecated("Info: Bps - bytes per second")]] UsartRs485 final
   Bps<uint32_t> getBaudrate() override { return baud_; }
 
   bool setBaudrate(Bps<uint32_t> baud) override {
-    baud_ = baud;
     huart_.Init.BaudRate = baud.value() * 10;
-    return (HAL_UART_Init(&huart_) == HAL_OK);
+    if (HAL_UART_Init(&huart_) != HAL_OK) {
+      return false;
+    }
+    baud_ = baud;
+    return true;
   }
 
   bool error() override {
     return HAL_UART_GetError(&huart_) != HAL_UART_ERROR_NONE;
+  }
+
+  void clearError() override {
+    __HAL_UART_CLEAR_OREFLAG(&huart_);
+    huart_.ErrorCode = HAL_UART_ERROR_NONE;
   }
 
  private:

@@ -145,6 +145,18 @@ inline constexpr bool hasAnyDiscrete =
     (isDiscrete(std::remove_cvref_t<Keys>::access) || ...);
 
 template <typename Tuple>
+struct CountHolding;
+template <typename... Ks>
+struct CountHolding<std::tuple<Ks...>>
+    : std::integral_constant<
+          std::size_t,
+          (std::size_t{0} + ... + (std::remove_cvref_t<Ks>::isHolding ? 1U : 0U))> {
+};
+
+template <typename Tuple>
+constexpr std::size_t countHolding = CountHolding<Tuple>::value;
+
+template <typename Tuple>
 struct HasAnyHolding;
 template <typename... Ks>
 struct HasAnyHolding<std::tuple<Ks...>>
@@ -447,6 +459,176 @@ class ModbusHandler {
   uint8_t address_;
 
   // ═══════════════════════════════════════════════════════════════════════
+  // Holding-register dispatch table
+  //
+  // Each key contributes one small thunk per direction plus one table entry;
+  // the table is sorted by address at compile time. A request locates its
+  // keys with a binary search and touches only the entries it really covers,
+  // instead of folding std::apply over every key on every request.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  using ReadFn = void (*)(Derived&, uint16_t, uint16_t, std::span<uint8_t>);
+  using WriteFn =
+      std::optional<Error> (*)(Derived&, uint16_t, std::span<const uint8_t>);
+
+  struct HrEntry {
+    uint16_t addr;
+    uint16_t reg_count;
+    uint8_t flags;  // Hr_Readable / Hr_Writable
+    ReadFn read;
+    WriteFn write;
+  };
+
+  static constexpr uint8_t Hr_Readable = 1U << 0;
+  static constexpr uint8_t Hr_Writable = 1U << 1;
+
+  static constexpr std::size_t Hr_Count =
+      detail::countHolding<typename RegInfo::Keys>;
+
+  /// Overlap of key [k_addr, k_addr + k_count) with request [start, start +
+  /// num).
+  struct HrOverlap {
+    std::span<uint8_t> out;  ///< destination slice inside the response
+    uint32_t src_off;        ///< byte offset into the stored value
+    uint16_t start_reg;      ///< first register of the slice (absolute)
+  };
+
+  static std::optional<HrOverlap> hrOverlap(uint32_t k_addr, uint32_t k_count,
+                                            uint32_t start, uint32_t num,
+                                            std::span<uint8_t> regs) {
+    const uint32_t k_end = k_addr + k_count;
+    const uint32_t r_end = start + num;
+    if (k_end <= start || k_addr >= r_end) return std::nullopt;
+
+    const uint32_t ov_start = k_addr > start ? k_addr : start;
+    const uint32_t ov_end = k_end < r_end ? k_end : r_end;
+    return HrOverlap{
+        .out = regs.subspan((ov_start - start) * 2U, (ov_end - ov_start) * 2U),
+        .src_off = (ov_start - k_addr) * 2U,
+        .start_reg = static_cast<uint16_t>(ov_start)};
+  }
+
+  /// Copy @p n bytes from a wire buffer into @p dst, converting every 16-bit
+  /// word from big-endian to host order. The source is left untouched.
+  static void hrDecodeWords(void* dst, const uint8_t* src, std::size_t n) {
+    auto* out = static_cast<uint8_t*>(dst);
+    for (std::size_t i = 0; i < n; ++i) out[i] = src[i ^ 1U];
+  }
+
+  /// FC03: fill the key's overlap with the requested range.
+  template <typename K>
+  static void readHrThunk(Derived& d, uint16_t start, uint16_t num,
+                          std::span<uint8_t> regs) {
+    if constexpr (detail::isReadable(K::access)) {
+      auto ov = hrOverlap(K::address, K::Type::regCount, start, num, regs);
+      if (!ov) return;
+
+      if constexpr (requires(std::span<uint8_t> o) {
+                      d.onRead(ModbusKey<K>{}, uint16_t{}, o);
+                    }) {
+        // start_reg is the first register of the slice, so a request that
+        // begins before the key still yields a valid offset.
+        d.onRead(ModbusKey<K>{}, ov->start_reg, ov->out);
+      } else {
+        auto v = d.onRead(ModbusKey<K>{});
+        checkReadReturnType<K>(v);
+        std::memcpy(ov->out.data(),
+                    reinterpret_cast<const uint8_t*>(&v) + ov->src_off,
+                    ov->out.size());
+      }
+    }
+  }
+
+  /// FC16/FC06: decode the whole key from the request and call onWrite.
+  template <typename K>
+  static std::optional<Error> writeHrThunk(Derived& d, uint16_t start,
+                                           std::span<const uint8_t> regs) {
+    if constexpr (detail::isWritable(K::access)) {
+      typename K::ValueType v{};
+      const uint32_t off = static_cast<uint32_t>(K::address - start) * 2U;
+      if (off + sizeof(v) > regs.size()) return Error::IllegalDataValue;
+
+      hrDecodeWords(&v, regs.data() + off, sizeof(v));
+      return callOnWrite(d, ModbusKey<K>{}, v);
+    } else {
+      return std::nullopt;  // read-only keys are rejected while validating
+    }
+  }
+
+  static constexpr std::array<HrEntry, Hr_Count> makeHrTable() {
+    std::array<HrEntry, Hr_Count> table{};
+    std::size_t n = 0;
+    auto add = [&table, &n]<typename K>() {
+      if constexpr (K::isHolding)
+        table[n++] = HrEntry{
+            .addr = K::address,
+            .reg_count = K::Type::regCount,
+            .flags = static_cast<uint8_t>(
+                (detail::isReadable(K::access) ? Hr_Readable : 0U) |
+                (detail::isWritable(K::access) ? Hr_Writable : 0U)),
+            .read = &readHrThunk<K>,
+            .write = &writeHrThunk<K>};
+    };
+    std::apply(
+        [&add](auto... key) {
+          (add.template operator()<std::remove_cvref_t<decltype(key)>>(), ...);
+        },
+        typename RegInfo::Keys{});
+
+    // Insertion sort by address (compile time; key lists are normally
+    // already ordered, so this is a single pass).
+    for (std::size_t i = 1; i < n; ++i) {
+      HrEntry probe = table[i];
+      std::size_t j = i;
+      while (j > 0 && table[j - 1].addr > probe.addr) {
+        table[j] = table[j - 1];
+        --j;
+      }
+      table[j] = probe;
+    }
+    return table;
+  }
+
+  static const std::array<HrEntry, Hr_Count>& hrTable() {
+    static constexpr auto table = makeHrTable();
+    return table;
+  }
+
+  /// Exact address lookup (FC06); nullptr when no holding key matches.
+  static const HrEntry* findHr(uint16_t addr) {
+    const auto& table = hrTable();
+    std::size_t lo = 0;
+    std::size_t hi = table.size();
+    while (lo < hi) {
+      const std::size_t mid = lo + (hi - lo) / 2U;
+      if (table[mid].addr < addr) {
+        lo = mid + 1;
+      } else if (table[mid].addr > addr) {
+        hi = mid;
+      } else {
+        return &table[mid];
+      }
+    }
+    return nullptr;
+  }
+
+  /// First entry that can cover @p start (range-scan start for FC03/FC16).
+  static const HrEntry* firstHrOverlap(uint16_t start) {
+    const auto& table = hrTable();
+    std::size_t lo = 0;
+    std::size_t hi = table.size();
+    while (lo < hi) {
+      const std::size_t mid = lo + (hi - lo) / 2U;
+      if (table[mid].addr + table[mid].reg_count <= start) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return table.data() + lo;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Holding registers (0x03, 0x06, 0x10, 0x04)
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -467,86 +649,34 @@ class ModbusHandler {
     // Whole range is filled: any key may be sliced (partial reads, Modbus
     // caps a request at ~125 regs); gaps and WO keys read as zero.
     std::memset(regs.data(), 0, regs.size());
-    std::apply(
-        [&](auto... keys) { (fillReadHrKey(start, num, regs, keys), ...); },
-        typename RegInfo::Keys{});
+    const auto& table = hrTable();
+    const HrEntry* const table_end = table.data() + table.size();
+    const uint32_t r_end = static_cast<uint32_t>(start) + num;
+    for (const HrEntry* e = firstHrOverlap(start);
+         e != table_end && e->addr < r_end; ++e) {
+      if (e->flags & Hr_Readable) e->read(self(), start, num, regs);
+    }
     swapBytesInSpan(regs);
     return std::nullopt;
-  }
-
-  // Fill the key's overlap with the requested range. onRead may either return
-  // the value or fill a span: `void onRead(ModbusKey<K>, uint16_t start_reg,
-  // std::span<uint8_t> out)` for large keys (no copy).
-  template <typename Key>
-  void fillReadHrKey(uint16_t start, uint16_t num, std::span<uint8_t> regs,
-                     Key /*tag*/) {
-    using K = std::remove_cvref_t<Key>;
-    if constexpr (K::isHolding && detail::isReadable(K::access)) {
-      const uint32_t k_start = K::address;
-      const uint32_t k_end = k_start + K::Type::regCount;
-      const uint32_t r_start = start;
-      const uint32_t r_end = r_start + num;
-      if (k_end <= r_start || k_start >= r_end) return;  // no overlap
-
-      const uint32_t ov_start = k_start > r_start ? k_start : r_start;
-      const uint32_t ov_end = k_end < r_end ? k_end : r_end;
-      const uint32_t dst_off = (ov_start - r_start) * 2U;
-      auto out = regs.subspan(dst_off, (ov_end - ov_start) * 2U);
-
-      if constexpr (requires(std::span<uint8_t> o) {
-                      std::declval<Derived&>().onRead(
-                          ModbusKey<K>{}, static_cast<uint16_t>(0), o);
-                    }) {
-        self().onRead(ModbusKey<K>{}, start, out);
-      } else {
-        auto v = self().onRead(ModbusKey<K>{});
-        checkReadReturnType<K>(v);
-        const uint32_t src_off = (ov_start - k_start) * 2U;
-        std::memcpy(out.data(), reinterpret_cast<const uint8_t*>(&v) + src_off,
-                    out.size());
-      }
-    }
   }
 
   std::optional<Error> writeSingleHR(std::span<uint8_t> rx_buf,
                                      std::span<uint8_t> tx_buf) {
     if (rx_buf.size() != 4) return Error::IllegalDataValue;
     const uint16_t addr = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
-    const uint16_t value = (static_cast<uint16_t>(rx_buf[2]) << 8) | rx_buf[3];
 
-    bool matched = false;
-    std::optional<Error> err;
-    std::apply(
-        [&](auto... keys) {
-          (tryWriteSingleHRKey(addr, value, keys, err, matched), ...);
-        },
-        typename RegInfo::Keys{});
-    if (!matched) return Error::IllegalDataAddress;
-    if (err) return err;
+    const HrEntry* const entry = findHr(addr);
+    if (!entry) return Error::IllegalDataAddress;
+    if (entry->reg_count != 1) return Error::IllegalDataValue;
+    if (!(entry->flags & Hr_Writable)) return Error::IllegalFunction;
+
+    // The wire word is passed through as-is: the thunk converts each 16-bit
+    // word to host order exactly like the FC16 path does.
+    const std::array<uint8_t, 2> word{rx_buf[2], rx_buf[3]};
+    if (auto err = entry->write(self(), addr, word)) return err;
+
     std::copy(rx_buf.begin(), rx_buf.end(), tx_buf.begin());
     return std::nullopt;
-  }
-
-  template <typename Key>
-  void tryWriteSingleHRKey(uint16_t addr, uint16_t value, Key /*tag*/,
-                           std::optional<Error>& err, bool& matched) {
-    using K = std::remove_cvref_t<Key>;
-    if constexpr (K::isHolding) {
-      if (matched) return;
-      if (K::address != addr) return;
-      matched = true;
-      if (K::Type::regCount != 1) {
-        err = Error::IllegalDataValue;
-        return;
-      }
-      if constexpr (detail::isWritable(K::access)) {
-        typename K::ValueType v{};
-        std::memcpy(&v, &value, sizeof(v));
-        err = callOnWrite<K>(ModbusKey<K>{}, v);
-      } else {
-        err = Error::IllegalFunction;
-      }
-    }
   }
 
   std::optional<Error> writeMultipleHR(std::span<uint8_t> rx_buf,
@@ -566,74 +696,35 @@ class ModbusHandler {
 
     // The range must be exactly covered by whole writable keys (no gaps, no
     // cut u32/float keys). Validate first, then apply — the write is atomic.
+    const auto& table = hrTable();
+    const HrEntry* const table_end = table.data() + table.size();
+    const uint32_t r_end = static_cast<uint32_t>(start) + num;
+
+    uint32_t covered_words = 0;
     bool has_partial = false;
     bool has_read_only = false;
-    uint32_t covered_words = 0;
-    std::apply(
-        [&](auto... keys) {
-          (checkWriteHrKey(start, num, covered_words, has_partial,
-                           has_read_only, keys),
-           ...);
-        },
-        typename RegInfo::Keys{});
+    for (const HrEntry* e = firstHrOverlap(start);
+         e != table_end && e->addr < r_end; ++e) {
+      if (e->addr < start || e->addr + e->reg_count > r_end) {
+        has_partial = true;  // key cut by the range
+        continue;
+      }
+      if (e->flags & Hr_Writable)
+        covered_words += e->reg_count;
+      else
+        has_read_only = true;
+    }
     if (has_partial) return Error::IllegalDataValue;
     if (has_read_only) return Error::IllegalFunction;
     if (covered_words != num) return Error::IllegalDataAddress;  // gap
 
-    std::optional<Error> err;
-    std::apply(
-        [&](auto... keys) {
-          (applyWriteHrKey(start, num, regs, err, keys), ...);
-        },
-        typename RegInfo::Keys{});
-    if (err) return err;
+    for (const HrEntry* e = firstHrOverlap(start);
+         e != table_end && e->addr < r_end; ++e) {
+      if (!(e->flags & Hr_Writable)) continue;
+      if (auto err = e->write(self(), start, regs)) return err;
+    }
     std::copy(rx_buf.begin(), rx_buf.begin() + 4, tx_buf.begin());
     return std::nullopt;
-  }
-
-  template <typename Key>
-  void checkWriteHrKey(uint16_t start, uint16_t num, uint32_t& covered_words,
-                       bool& has_partial, bool& has_read_only, Key /*tag*/) {
-    using K = std::remove_cvref_t<Key>;
-    if constexpr (K::isHolding) {
-      const uint32_t k_start = K::address;
-      const uint32_t k_end = k_start + K::Type::regCount;
-      const uint32_t r_end = static_cast<uint32_t>(start) + num;
-      if (k_end <= start || k_start >= r_end) return;  // no overlap
-      if (k_start < start || k_end > r_end) {
-        has_partial = true;  // key cut by the range
-        return;
-      }
-      if constexpr (detail::isWritable(K::access))
-        covered_words += K::Type::regCount;
-      else
-        has_read_only = true;
-    }
-  }
-
-  template <typename Key>
-  void applyWriteHrKey(uint16_t start, uint16_t num, std::span<uint8_t> regs,
-                       std::optional<Error>& err, Key /*tag*/) {
-    using K = std::remove_cvref_t<Key>;
-    if constexpr (K::isHolding && detail::isWritable(K::access)) {
-      if (err) return;
-      const uint32_t k_start = K::address;
-      const uint32_t k_end = k_start + K::Type::regCount;
-      const uint32_t r_end = static_cast<uint32_t>(start) + num;
-      if (k_start < start || k_end > r_end) return;  // whole keys only
-      typename K::ValueType v{};
-      const uint32_t off = static_cast<uint32_t>(k_start - start) * 2U;
-      if (off + sizeof(v) > regs.size()) {
-        err = Error::IllegalDataValue;
-        return;
-      }
-      // Wire order: low word at base address, each word big-endian. Convert
-      // per 16-bit word to host byte order WITHOUT mutating the shared input
-      // buffer (rx_buf is reused across handlers on broadcast writes).
-      auto* dst = reinterpret_cast<uint8_t*>(&v);
-      for (std::size_t i = 0; i < sizeof(v); ++i) dst[i] = regs[off + (i ^ 1U)];
-      err = callOnWrite<K>(ModbusKey<K>{}, v);
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -709,7 +800,7 @@ class ModbusHandler {
       if (K::address != addr) return;
       matched = true;
       if constexpr (detail::isWritable(K::access))
-        err = callOnWrite<K>(ModbusKey<K>{}, value);
+        err = callOnWrite(self(), ModbusKey<K>{}, value);
       else
         err = Error::IllegalFunction;
     }
@@ -750,7 +841,7 @@ class ModbusHandler {
       if constexpr (detail::isWritable(K::access)) {
         const uint16_t off = K::address - start;
         const bool v = (bits[off / 8U] >> (off % 8U)) & 1U;
-        auto err = callOnWrite<K>(ModbusKey<K>{}, v);
+        auto err = callOnWrite(self(), ModbusKey<K>{}, v);
         if (err && !first_err) first_err = err;
       }
     }
@@ -815,14 +906,16 @@ class ModbusHandler {
                     "onRead for coil/discrete must return bool");
   }
 
+  /// Accepts both `void onWrite(...)` and `std::optional<Error> onWrite(...)`.
   template <typename K, typename V>
-  std::optional<Error> callOnWrite(ModbusKey<K> key, V&& v) {
-    if constexpr (std::is_void_v<decltype(self().onWrite(
+  static std::optional<Error> callOnWrite(Derived& d, ModbusKey<K> key,
+                                          V&& v) {
+    if constexpr (std::is_void_v<decltype(d.onWrite(
                       key, std::forward<V>(v)))>) {
-      self().onWrite(key, std::forward<V>(v));
+      d.onWrite(key, std::forward<V>(v));
       return std::nullopt;
     } else {
-      return self().onWrite(key, std::forward<V>(v));
+      return d.onWrite(key, std::forward<V>(v));
     }
   }
 
